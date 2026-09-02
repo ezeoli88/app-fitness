@@ -1,0 +1,52 @@
+{
+  "nombre": "Rutina de hombre (3 días)",
+  "diasPorSemana": 3,
+  "ciclo": [1, 2, 3],
+  "dias": [
+    {
+      "id": 1,
+      "titulo": "Pecho y tríceps",
+      "ejercicios": [
+        { "nombre": "Press de banco plano", "series": 4, "reps": 12 },
+        { "nombre": "Press de banco inclinado", "series": 4, "reps": 12 },
+        { "nombre": "Press de banco declinado", "series": 4, "reps": 12 },
+        { "nombre": "Apertura c/mancuernas", "series": 4, "reps": 12 },
+        { "nombre": "Pullover", "series": 4, "reps": 12 },
+        { "nombre": "Press francés", "series": 4, "reps": 12 },
+        { "nombre": "Extensión alternada c/mancuernas", "series": 4, "reps": 12 },
+        { "nombre": "Extensión de tríceps c/polea", "series": 4, "reps": 12 }
+      ]
+    },
+    {
+      "id": 2,
+      "titulo": "Hombros y piernas",
+      "ejercicios": [
+        { "nombre": "Press tras nuca", "series": 4, "reps": 12 },
+        { "nombre": "Press Arnold", "series": 4, "reps": 12 },
+        { "nombre": "Vuelos laterales", "series": 4, "reps": 12 },
+        { "nombre": "Vuelos frontales", "series": 4, "reps": 12 },
+        { "nombre": "Vuelos posteriores", "series": 4, "reps": 12 },
+        { "nombre": "Sentadillas", "series": 4, "reps": 15 },
+        { "nombre": "Prensa 45°", "series": 4, "reps": 15 },
+        { "nombre": "Extensión de cuádriceps", "series": 4, "reps": 15 },
+        { "nombre": "Camilla femoral", "series": 4, "reps": 15 },
+        { "nombre": "Piernas duras", "series": 4, "reps": 15 },
+        { "nombre": "Gemelos sentado", "series": 4, "reps": 20 }
+      ]
+    },
+    {
+      "id": 3,
+      "titulo": "Espalda y bíceps",
+      "ejercicios": [
+        { "nombre": "Polea al pecho", "series": 4, "reps": 12 },
+        { "nombre": "Polea agarre cerrado al pecho", "series": 4, "reps": 12 },
+        { "nombre": "Pullover", "series": 4, "reps": 12 },
+        { "nombre": "Remo caballo agarre abierto", "series": 4, "reps": 12 },
+        { "nombre": "Polea baja", "series": 4, "reps": 12 },
+        { "nombre": "Curl con barra", "series": 4, "reps": 12 },
+        { "nombre": "Alternado c/mancuernas", "series": 4, "reps": 12 },
+        { "nombre": "Banco scott con barra", "series": 4, "reps": 12 }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@
   "dias": [
     {
       "id": 1,
-      "titulo": "Pecho y bíceps",
+      "titulo": "Pecho y tríceps",
       "ejercicios": [
         { "nombre": "Press de banco plano", "series": 4, "reps": 12 },
         { "nombre": "Press de banco inclinado", "series": 4, "reps": 12 },
@@ -36,7 +36,7 @@
     },
     {
       "id": 3,
-      "titulo": "Espalda y tríceps",
+      "titulo": "Espalda y bíceps",
       "ejercicios": [
         { "nombre": "Polea al pecho", "series": 4, "reps": 12 },
         { "nombre": "Polea agarre cerrado al pecho", "series": 4, "reps": 12 },
