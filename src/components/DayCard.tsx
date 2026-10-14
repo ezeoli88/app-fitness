@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatCompletedLong } from '@/format';
-import { colors } from '@/theme';
+import { useTheme } from '@/ThemeContext';
 
 type DayCardProps = {
   dayNumber: number;
@@ -12,6 +12,7 @@ type DayCardProps = {
   doneSets: number;
   isOpen: boolean;
   isLast: boolean;
+  isNext?: boolean;
   lastCompletedAt: string | null;
   onPress: () => void;
 };
@@ -25,54 +26,62 @@ export function DayCard({
   doneSets,
   isOpen,
   isLast,
+  isNext = false,
   lastCompletedAt,
   onPress,
 }: DayCardProps) {
+  const { colors } = useTheme();
   const progress = totalSetsCount === 0 ? 0 : doneSets / totalSetsCount;
 
   let subtitle = `${totalExercises} ejercicios · ${totalSetsCount} series`;
   if (isOpen) {
     subtitle = `${doneExercises} / ${totalExercises} ejercicios · ${doneSets} / ${totalSetsCount} series`;
   } else if (isLast && lastCompletedAt) {
-    subtitle = `Completada el ${formatCompletedLong(lastCompletedAt)}`;
+    subtitle = `Finalizada el ${formatCompletedLong(lastCompletedAt)}`;
   }
 
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.card, isLast && !isOpen ? styles.cardLast : null]}
+      style={[
+        styles.card,
+        {
+          backgroundColor: colors.card,
+          borderColor: isLast && !isOpen ? colors.lastBorder : colors.border,
+        },
+      ]}
       accessibilityRole="button"
       accessibilityLabel={title}>
       <View style={styles.row}>
         <View style={styles.titles}>
-          <Text style={styles.kicker}>Día {dayNumber}</Text>
-          <Text style={styles.title}>{title}</Text>
+          <Text style={[styles.kicker, { color: colors.muted }]}>Día {dayNumber}</Text>
+          <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
         </View>
-        {isOpen ? <Text style={styles.badge}>A medias</Text> : null}
-        {isLast && !isOpen ? <Text style={styles.badgeLast}>Última</Text> : null}
+        {isOpen ? <Text style={[styles.badge, { color: colors.brass }]}>A medias</Text> : null}
+        {isLast && !isOpen ? (
+          <Text style={[styles.badgeLast, { color: colors.brass }]}>Última</Text>
+        ) : null}
+        {isNext && !isOpen && !isLast ? (
+          <Text style={[styles.badgeLast, { color: colors.brass }]}>Próximo</Text>
+        ) : null}
       </View>
       {isOpen ? (
-        <View style={styles.track}>
-          <View style={[styles.fill, { width: `${Math.round(progress * 100)}%` }]} />
+        <View style={[styles.track, { backgroundColor: colors.border }]}>
+          <View style={[styles.fill, { width: `${Math.round(progress * 100)}%`, backgroundColor: colors.chalk }]} />
         </View>
       ) : null}
-      <Text style={styles.subtitle}>{subtitle}</Text>
+      <Text style={[styles.subtitle, { color: colors.muted }]}>{subtitle}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: 18,
     paddingHorizontal: 18,
     paddingVertical: 16,
     marginBottom: 10,
-  },
-  cardLast: {
-    borderColor: colors.lastBorder,
   },
   row: {
     flexDirection: 'row',
@@ -84,23 +93,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   kicker: {
-    color: colors.muted,
     fontSize: 11,
   },
   title: {
-    color: colors.text,
     fontSize: 18,
     fontWeight: '600',
     marginTop: 4,
     letterSpacing: -0.4,
   },
   badge: {
-    color: colors.brass,
     fontSize: 12,
     fontWeight: '600',
   },
   badgeLast: {
-    color: colors.brass,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.2,
@@ -108,17 +113,14 @@ const styles = StyleSheet.create({
   },
   track: {
     height: 3,
-    backgroundColor: colors.border,
     borderRadius: 99,
     overflow: 'hidden',
     marginTop: 14,
   },
   fill: {
     height: '100%',
-    backgroundColor: colors.chalk,
   },
   subtitle: {
-    color: colors.muted,
     fontSize: 13,
     marginTop: 10,
   },

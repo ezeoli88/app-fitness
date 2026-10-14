@@ -1,20 +1,27 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors } from '@/theme';
+import { useTheme } from '@/ThemeContext';
 
 type UndoToastProps = {
   visible: boolean;
+  message?: string;
   onUndo: () => void;
 };
 
-export function UndoToast({ visible, onUndo }: UndoToastProps) {
+export function UndoToast({ visible, message = 'Entrenamiento guardado', onUndo }: UndoToastProps) {
+  const { colors } = useTheme();
   if (!visible) return null;
 
   return (
-    <View style={styles.wrap} accessibilityLiveRegion="polite">
-      <Text style={styles.message}>Día completo</Text>
+    <View
+      style={[
+        styles.wrap,
+        { backgroundColor: colors.card, borderColor: colors.lastBorder },
+      ]}
+      accessibilityLiveRegion="polite">
+      <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
       <Pressable onPress={onUndo} accessibilityRole="button" accessibilityLabel="Deshacer">
-        <Text style={styles.action}>Deshacer</Text>
+        <Text style={[styles.action, { color: colors.brass }]}>Deshacer</Text>
       </Pressable>
     </View>
   );
@@ -26,8 +33,6 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     bottom: 28,
-    backgroundColor: colors.card,
-    borderColor: colors.lastBorder,
     borderWidth: 1,
     borderRadius: 16,
     paddingHorizontal: 18,
@@ -37,12 +42,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   message: {
-    color: colors.text,
     fontSize: 15,
     fontWeight: '600',
   },
   action: {
-    color: colors.brass,
     fontSize: 15,
     fontWeight: '700',
   },

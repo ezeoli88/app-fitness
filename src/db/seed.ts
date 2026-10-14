@@ -2,26 +2,42 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { RoutineJson } from '@/domain/types';
 
-export async function seedIfEmpty(db: SQLiteDatabase, routine: RoutineJson): Promise<void> {
-  const row = await db.getFirstAsync<{ c: number }>('SELECT COUNT(*) as c FROM days');
-  if ((row?.c ?? 0) > 0) return;
-
-  for (const [index, day] of routine.dias.entries()) {
-    await db.runAsync(
-      'INSERT INTO days (id, title, sort) VALUES (?, ?, ?)',
-      day.id,
-      day.titulo,
-      index
-    );
-    for (const [exIndex, exercise] of day.ejercicios.entries()) {
-      await db.runAsync(
-        'INSERT INTO exercises (day_id, name, sets, reps, sort) VALUES (?, ?, ?, ?, ?)',
-        day.id,
-        exercise.nombre,
-        exercise.series,
-        exercise.reps,
-        exIndex
+export async function seedCatalog(db: SQLiteDatabase, catalog: RoutineJson[]): Promise<void> {
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    for (const [sort, routine] of catalog.entries()) {
+      const existing = await tx.getFirstAsync<{ id: string }>(
+        'SELECT id FROM routines WHERE id = ?',
+        routine.id
       );
+      if (existing) continue;
+
+      await tx.runAsync(
+        'INSERT INTO routines (id, title, level, sort) VALUES (?, ?, ?, ?)',
+        routine.id,
+        routine.titulo,
+        routine.nivel,
+        sort
+      );
+
+      for (const [index, day] of routine.dias.entries()) {
+        const inserted = await tx.runAsync(
+          'INSERT INTO days (routine_id, title, sort) VALUES (?, ?, ?)',
+          routine.id,
+          day.titulo,
+          index
+        );
+        const dayId = inserted.lastInsertRowId;
+        for (const [exIndex, exercise] of day.ejercicios.entries()) {
+          await tx.runAsync(
+            'INSERT INTO exercises (day_id, name, sets, reps, sort) VALUES (?, ?, ?, ?, ?)',
+            dayId,
+            exercise.nombre,
+            exercise.series,
+            exercise.reps,
+            exIndex
+          );
+        }
+      }
     }
-  }
+  });
 }

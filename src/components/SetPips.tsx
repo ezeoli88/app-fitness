@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { colors } from '@/theme';
+import { useTheme } from '@/ThemeContext';
 
 type SetPipsProps = {
   marks: boolean[];
@@ -9,6 +9,8 @@ type SetPipsProps = {
 };
 
 export function SetPips({ marks, disabled = false, onToggle }: SetPipsProps) {
+  const { colors } = useTheme();
+
   return (
     <View style={styles.row}>
       {marks.map((done, index) => (
@@ -19,7 +21,12 @@ export function SetPips({ marks, disabled = false, onToggle }: SetPipsProps) {
           accessibilityRole="button"
           accessibilityState={{ checked: done, disabled }}
           accessibilityLabel={`Serie ${index + 1}`}
-          style={[styles.pip, done ? styles.pipDone : styles.pipEmpty]}
+          style={[
+            styles.pip,
+            done
+              ? { borderColor: colors.chalk, backgroundColor: colors.chalk }
+              : { borderColor: colors.border, backgroundColor: 'transparent' },
+          ]}
         />
       ))}
     </View>
@@ -37,13 +44,5 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 2,
-  },
-  pipEmpty: {
-    borderColor: colors.border,
-    backgroundColor: 'transparent',
-  },
-  pipDone: {
-    borderColor: colors.chalk,
-    backgroundColor: colors.chalk,
   },
 });

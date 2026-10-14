@@ -1,5 +1,7 @@
 export type RoutineJson = {
-  nombre: string;
+  id: string;
+  titulo: string;
+  nivel: string;
   diasPorSemana: number;
   ciclo: number[];
   dias: {
@@ -9,7 +11,7 @@ export type RoutineJson = {
   }[];
 };
 
-export type Day = { id: number; title: string; sort: number };
+export type Day = { id: number; routineId: string; title: string; sort: number };
 
 export type Exercise = {
   id: number;
@@ -18,6 +20,28 @@ export type Exercise = {
   sets: number;
   reps: number;
   sort: number;
+  archivedAt?: string | null;
+};
+
+export type SessionStatus = 'open' | 'completed' | 'partial';
+
+export type SessionExercise = {
+  id: number;
+  sessionId: number;
+  sourceExerciseId: number;
+  name: string;
+  sets: number;
+  reps: number;
+  sort: number;
+};
+
+export type SessionSet = {
+  id: number;
+  sessionExerciseId: number;
+  setIndex: number;
+  completed: boolean;
+  weightKg: number | null;
+  actualReps: number | null;
 };
 
 export type Session = {
@@ -26,6 +50,47 @@ export type Session = {
   startedAt: string;
   completedAt: string | null;
   completedSets: Record<number, boolean[]>;
+  status: SessionStatus;
+  routineId: string;
+  routineTitle: string;
+  dayTitle: string;
 };
 
-export type CompletedSession = Session & { dayTitle: string };
+export type SessionDetails = Session & {
+  exercises: (SessionExercise & { series: SessionSet[] })[];
+};
+
+export type CompletedSession = Session & {
+  exercisesCompleted: number;
+  exercisesTotal: number;
+};
+
+export type RestTimer = {
+  sessionId: number;
+  dayId: number;
+  exerciseId: number;
+  setIndex: number;
+  expiresAt: number;
+  notificationId: string | null;
+};
+
+export type RoutineDayDraft = {
+  id: number | null;
+  title: string;
+  sort: number;
+  exercises: {
+    id: number | null;
+    name: string;
+    sets: number;
+    reps: number;
+    sort: number;
+  }[];
+};
+
+export type RoutineDraft = {
+  id: string | null;
+  title: string;
+  level: string;
+  sort: number;
+  days: RoutineDayDraft[];
+};

@@ -1,56 +1,72 @@
-# Welcome to your Expo app 👋
+# Rutina
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Aplicación personal de entrenamiento, local y sin cuentas. Expo SDK 57, React Native, Expo Router y SQLite. Android es la plataforma principal.
 
-## Get started
+## Funciones
 
-1. Install dependencies
+- Peso y repeticiones opcionales por serie. Admite coma o punto decimal, cero kg y campos vacíos. Copia los valores anteriores sin marcar las series.
+- Finalización manual completa o parcial, descarte de sesiones vacías y cinco segundos para deshacer. Salir conserva el entrenamiento pendiente.
+- Rutinas editables, duplicación con historial independiente, archivo y orden de días y ejercicios. Quitar un ejercicio y agregar otro crea una identidad nueva.
+- Las sesiones conservan sus nombres y objetivos originales aunque se edite la rutina.
+- Próximo día sugerido, prioridad para la última sesión abierta utilizada, historial por páginas de 20, filtros y corrección de valores.
+- Descanso automático de 90 segundos, configurable entre 15 y 600, con extensión, omisión y aviso local. Sin permiso se conserva el contador y la vibración en primer plano.
+- Temas claro y oscuro.
 
-   ```bash
-   npm install
-   ```
+## Ejecutar en Android
 
-2. Start the app
+Requisitos: Node 22.13 o posterior (Node 24 para las pruebas con node:sqlite), JDK 17, Android SDK y un emulador abierto. Instalar las dependencias con `npm ci`.
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+npm run android
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Este comando compila e instala la app nativa y levanta Metro. Expo Go no es necesario. Para reutilizar la instalación de desarrollo:
 
-### Other setup steps
+```sh
+npx expo start --host lan --port 8081
+adb reverse tcp:8081 tcp:8081
+adb shell am start -n com.ezequiel.rutina/.MainActivity
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Metro debe seguir abierto para usar el APK de desarrollo. Si aparece “Unable to load script”, comprobar que `http://127.0.0.1:8081/status` responda `packager-status:running`. En este equipo, `--host localhost` vinculaba el servidor solo a IPv6; `--host lan` permite la conexión del emulador.
 
-## Learn more
+Para una instalación que abra sin Metro:
 
-To learn more about developing your project with Expo, look at the following resources:
+```sh
+npx expo run:android --variant release --no-bundler
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+En PowerShell, si npm/npx no están en PATH, usar `node node_modules/expo/bin/cli` en lugar de `npx expo`.
 
-## Join the community
+También se puede compilar el APK para un emulador x86_64, desde android:
 
-Join our community of developers creating universal apps.
+```powershell
+.\gradlew.bat :app:assembleRelease -PreactNativeArchitectures=x86_64 --max-workers=2
+adb install -r app/build/outputs/apk/release/app-release.apk
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+El APK local usa la firma de desarrollo del proyecto; no está preparado para publicar en una tienda. Para un teléfono ARM hay que compilar la arquitectura correspondiente.
+
+## Datos y recuperación
+
+SQLite se almacena en `rutina.db` dentro del almacenamiento privado de la app. La migración a v4 conserva identificadores, fechas, preferencias y progreso. Antes de migrar una instalación existente se crea `rutina-antes-de-migrar-v4.db`. Si falla la migración, se ofrece reintentar y no se borra la base.
+
+Las sesiones antiguas se reconstruyen con los objetivos disponibles al migrar; peso y repeticiones reales quedan sin dato. Se conservan las marcas de ejercicios retirados aunque su nombre u objetivo original ya no esté disponible.
+
+Desinstalar elimina el almacenamiento local de Android. Para actualizar conservando datos, instalar con `adb install -r` y evitar desinstalar o borrar el almacenamiento. La copia previa a migrar también es local y no sustituye un respaldo externo.
+
+## Verificación
+
+```sh
+node node_modules/jest/bin/jest.js --runInBand --watchAll=false
+node node_modules/typescript/bin/tsc --noEmit
+git diff --check
+```
+
+Las pruebas incluyen SQLite real mediante node:sqlite, migraciones y rollback, snapshots, escrituras concurrentes, paginación de más de 50 sesiones, sugerencias y reconciliación del temporizador con notificaciones simuladas.
+
+El registro de pruebas automáticas y de los flujos comprobados en Android está en [docs/VALIDATION.md](docs/VALIDATION.md).
+
+La entrega de avisos con la app cerrada o el teléfono bloqueado depende de los permisos y restricciones de Android. Verificar también en un dispositivo físico antes de distribuir.
+
+Documentación: [Expo SDK 57](https://docs.expo.dev/versions/v57.0.0/), [SQLite](https://docs.expo.dev/versions/v57.0.0/sdk/sqlite/), [notificaciones](https://docs.expo.dev/versions/v57.0.0/sdk/notifications/).
