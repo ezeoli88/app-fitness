@@ -9,4 +9,4 @@ La app es solo web. La interfaz es Vite + React con TanStack Router, Query y For
 - Vitest del Worker: 12 pruebas sobre D1 (contrato del repositorio, checks y la API) y 4 de Access con llaves locales.
 - `vite build`: el JS de entrada pesa 321 kB (105 kB gzip) y el JS de `dist/` suma 438 kB, más 13 kB de CSS. El bundle no arrastra `expo-sqlite`, `expo-notifications`, `expo-splash-screen`, `expo-router` ni `react-native`.
 - `wrangler deploy --dry-run --env=""`, sin publicar.
-- Playwright (`e2e/playwright.config.ts`) contra el Worker local con ese build, en 1440×900 y en 390×844.
+- Playwright contra el Worker local con ese build: entrenar, corregir el historial y archivar pasó en 1440×900 (1,9 s) y en 390×844 (1,7 s).

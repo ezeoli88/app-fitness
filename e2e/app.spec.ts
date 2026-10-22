@@ -2,7 +2,7 @@ import { expect, type Page, test } from '@playwright/test';
 
 async function openRoutineAction(page: Page, title: string, action: 'Editar' | 'Archivar') {
   const pick = page.getByRole('button', { name: new RegExp(title) }).first();
-  const card = pick.locator('xpath=ancestor::*[.//*[@role="button" and normalize-space()="' + action + '"]][1]');
+  const card = pick.locator(`xpath=ancestor::*[.//button[normalize-space()="${action}"]][1]`);
   await card.getByRole('button', { name: action }).click();
 }
 
