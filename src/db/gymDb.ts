@@ -12,6 +12,7 @@ import type {
   SessionExercise,
   SessionSet,
   SessionStatus,
+  WeightHint,
 } from '@/domain/types';
 
 type SessionRow = {
@@ -97,6 +98,8 @@ const CHOSEN_ROUTINE_ID = `(
   LIMIT 1
 )`;
 
+const EXERCISE_COLUMNS = 'id, day_id AS dayId, name, sets, reps, sort, target_weight_kg AS targetWeightKg';
+
 const SESSION_COLUMNS = `
   id, day_id, started_at, completed_at, completed_sets,
   status, routine_id, routine_title, day_title
@@ -177,6 +180,7 @@ export type GymDb = {
   reopenSession(sessionId: number): Promise<void>;
   discardEmptySession(sessionId: number): Promise<void>;
   previousExerciseSets(routineId: string, exerciseId: number): Promise<SessionSet[]>;
+  exerciseWeightHints(exerciseIds: number[]): Promise<Record<number, WeightHint>>;
   updateHistoricalSet(setId: number, patch: Partial<Pick<SessionSet, 'weightKg' | 'actualReps'>>): Promise<void>;
   lastCompleted(routineId?: string): Promise<CompletedSession | null>;
   listCompleted(limit: number, offset?: number, routineId?: string | null): Promise<CompletedSession[]>;
@@ -342,8 +346,9 @@ export function createGymDb(driver: SqlDriver): GymDb {
           sets: number;
           reps: number;
           sort: number;
+          targetWeightKg: number | null;
         }>(
-          `SELECT id, day_id AS dayId, name, sets, reps, sort FROM exercises
+          `SELECT ${EXERCISE_COLUMNS} FROM exercises
            WHERE archived_at IS NULL AND day_id IN (${placeholders(days.length)})
            ORDER BY sort, id`,
           ...days.map((day) => day.id)
@@ -357,6 +362,7 @@ export function createGymDb(driver: SqlDriver): GymDb {
             sets: exercise.sets,
             reps: exercise.reps,
             sort: exercise.sort,
+            targetWeightKg: exercise.targetWeightKg,
           });
           byDay.set(exercise.dayId, list);
         }
@@ -477,26 +483,29 @@ export function createGymDb(driver: SqlDriver): GymDb {
             if (exercise.id === null) continue;
             const exerciseName = exercise.name.trim();
             const exerciseId = exercise.id;
+            const targetWeightKg = exercise.targetWeightKg ?? null;
             planned.push({
               stmt: {
-                sql: `UPDATE exercises SET name = ?, sets = ?, reps = ?, sort = ?, archived_at = NULL
+                sql: `UPDATE exercises SET name = ?, sets = ?, reps = ?, sort = ?, target_weight_kg = ?, archived_at = NULL
                       WHERE id = ? AND day_id = ?
                         AND EXISTS (
                           SELECT 1 FROM days d JOIN routines r ON r.id = d.routine_id
                           WHERE d.id = ? AND r.id = ? AND r.archived_at IS NULL
                         )`,
-                params: [exerciseName, exercise.sets, exercise.reps, exerciseIndex, exerciseId, dayId, dayId, routineId],
+                params: [exerciseName, exercise.sets, exercise.reps, exerciseIndex, targetWeightKg, exerciseId, dayId, dayId, routineId],
               },
               error: `El ejercicio «${exerciseName}» ya no pertenece a este día.`,
               stillApplied: async () => Boolean(await driver.first(
                 `SELECT id FROM exercises
-                 WHERE id = ? AND day_id = ? AND name = ? AND sets = ? AND reps = ? AND sort = ? AND archived_at IS NULL`,
+                 WHERE id = ? AND day_id = ? AND name = ? AND sets = ? AND reps = ? AND sort = ?
+                   AND target_weight_kg IS ? AND archived_at IS NULL`,
                 exerciseId,
                 dayId,
                 exerciseName,
                 exercise.sets,
                 exercise.reps,
-                exerciseIndex
+                exerciseIndex,
+                targetWeightKg
               )),
             });
           }
@@ -533,18 +542,19 @@ export function createGymDb(driver: SqlDriver): GymDb {
         for (const [exerciseIndex, exercise] of day.exercises.entries()) {
           if (exercise.id !== null) continue;
           const exerciseName = exercise.name.trim();
+          const targetWeightKg = exercise.targetWeightKg ?? null;
           const onNewDay = day.id === null;
           planned.push({
             stmt: {
               sql: onNewDay
-                ? `INSERT INTO exercises (day_id, name, sets, reps, sort, archived_at)
-                   SELECT id, ?, ?, ?, ?, NULL FROM days
+                ? `INSERT INTO exercises (day_id, name, sets, reps, sort, target_weight_kg, archived_at)
+                   SELECT id, ?, ?, ?, ?, ?, NULL FROM days
                    WHERE routine_id = ? AND sort = ? AND archived_at IS NULL`
-                : `INSERT INTO exercises (day_id, name, sets, reps, sort, archived_at)
-                   VALUES (?, ?, ?, ?, ?, NULL)`,
+                : `INSERT INTO exercises (day_id, name, sets, reps, sort, target_weight_kg, archived_at)
+                   VALUES (?, ?, ?, ?, ?, ?, NULL)`,
               params: onNewDay
-                ? [exerciseName, exercise.sets, exercise.reps, exerciseIndex, routineId, dayIndex]
-                : [day.id, exerciseName, exercise.sets, exercise.reps, exerciseIndex],
+                ? [exerciseName, exercise.sets, exercise.reps, exerciseIndex, targetWeightKg, routineId, dayIndex]
+                : [day.id, exerciseName, exercise.sets, exercise.reps, exerciseIndex, targetWeightKg],
             },
             error: 'No se pudo guardar la rutina.',
             stillApplied: async () => Boolean(await driver.first(
@@ -552,12 +562,14 @@ export function createGymDb(driver: SqlDriver): GymDb {
                 ? `SELECT e.id FROM exercises e
                    JOIN days d ON d.id = e.day_id
                    WHERE d.routine_id = ? AND d.sort = ? AND d.archived_at IS NULL
-                     AND e.name = ? AND e.sets = ? AND e.reps = ? AND e.sort = ? AND e.archived_at IS NULL`
+                     AND e.name = ? AND e.sets = ? AND e.reps = ? AND e.sort = ?
+                     AND e.target_weight_kg IS ? AND e.archived_at IS NULL`
                 : `SELECT id FROM exercises
-                   WHERE day_id = ? AND name = ? AND sets = ? AND reps = ? AND sort = ? AND archived_at IS NULL`,
+                   WHERE day_id = ? AND name = ? AND sets = ? AND reps = ? AND sort = ?
+                     AND target_weight_kg IS ? AND archived_at IS NULL`,
               ...(onNewDay
-                ? [routineId, dayIndex, exerciseName, exercise.sets, exercise.reps, exerciseIndex]
-                : [day.id, exerciseName, exercise.sets, exercise.reps, exerciseIndex])
+                ? [routineId, dayIndex, exerciseName, exercise.sets, exercise.reps, exerciseIndex, targetWeightKg]
+                : [day.id, exerciseName, exercise.sets, exercise.reps, exerciseIndex, targetWeightKg])
             )),
           });
         }
@@ -634,7 +646,7 @@ export function createGymDb(driver: SqlDriver): GymDb {
 
     async listExercises(dayId) {
       return driver.all<Exercise>(
-        `SELECT id, day_id AS dayId, name, sets, reps, sort FROM exercises
+        `SELECT ${EXERCISE_COLUMNS} FROM exercises
          WHERE day_id = ? AND archived_at IS NULL ORDER BY sort, id`,
         dayId
       );
@@ -698,7 +710,7 @@ export function createGymDb(driver: SqlDriver): GymDb {
         );
         if (!day) throw new DomainError('No encontramos ese día en tu rutina.');
         const exercises = await driver.all<Exercise>(
-          `SELECT id, day_id AS dayId, name, sets, reps, sort FROM exercises
+          `SELECT ${EXERCISE_COLUMNS} FROM exercises
            WHERE day_id = ? AND archived_at IS NULL ORDER BY sort, id`,
           dayId
         );
@@ -910,6 +922,33 @@ export function createGymDb(driver: SqlDriver): GymDb {
       return rows.map((row) => ({ ...row, completed: Boolean(row.completed) }));
     },
 
+    async exerciseWeightHints(exerciseIds) {
+      const ids = [...new Set(exerciseIds)];
+      if (ids.length === 0) return {};
+      // El último peso sale de la serie realizada más reciente en una sesión cerrada.
+      const rows = await driver.all<{ exerciseId: number; targetWeightKg: number | null; lastWeightKg: number | null }>(
+        `SELECT e.id AS exerciseId, e.target_weight_kg AS targetWeightKg,
+                (
+                  SELECT ss.weight_kg
+                  FROM session_sets ss
+                  JOIN session_exercises se ON se.id = ss.session_exercise_id
+                  JOIN sessions s ON s.id = se.session_id
+                  WHERE se.source_exercise_id = e.id
+                    AND s.status IN ('completed', 'partial')
+                    AND ss.completed = 1 AND ss.weight_kg IS NOT NULL
+                  ORDER BY s.completed_at DESC, s.id DESC, ss.set_index DESC
+                  LIMIT 1
+                ) AS lastWeightKg
+         FROM exercises e WHERE e.id IN (${placeholders(ids.length)})`,
+        ...ids
+      );
+      const hints: Record<number, WeightHint> = {};
+      for (const row of rows) {
+        hints[row.exerciseId] = { lastWeightKg: row.lastWeightKg, targetWeightKg: row.targetWeightKg };
+      }
+      return hints;
+    },
+
     async updateHistoricalSet(setId, patch) {
       if (patch.weightKg !== undefined) assertWeight(patch.weightKg);
       if (patch.actualReps !== undefined) assertReps(patch.actualReps);
@@ -991,7 +1030,7 @@ export function createGymDb(driver: SqlDriver): GymDb {
                 ORDER BY sort, id`,
         },
         {
-          sql: `SELECT e.id, e.day_id AS dayId, e.name, e.sets, e.reps, e.sort
+          sql: `SELECT e.id, e.day_id AS dayId, e.name, e.sets, e.reps, e.sort, e.target_weight_kg AS targetWeightKg
                 FROM exercises e JOIN days d ON d.id = e.day_id
                 WHERE e.archived_at IS NULL AND d.archived_at IS NULL
                   AND d.routine_id = ${CHOSEN_ROUTINE_ID}

@@ -10,6 +10,7 @@ import type {
   SessionDetails,
   SessionSet,
   SessionStatus,
+  WeightHint,
 } from '@/domain/types';
 
 function query(params: Record<string, string | number | undefined>): string {
@@ -52,6 +53,9 @@ export function createHttpGymDb(base: string): GymDb & { ensureBootstrapped(): P
     discardEmptySession: (sessionId) => write<{ ok: true }>(`/sessions/${sessionId}`, 'DELETE').then(() => undefined),
     previousExerciseSets: (routineId, exerciseId) =>
       read<SessionSet[]>(`/exercises/${exerciseId}/previous-sets${query({ routineId })}`),
+    exerciseWeightHints: (exerciseIds) => exerciseIds.length === 0
+      ? Promise.resolve({})
+      : read<Record<number, WeightHint>>(`/exercises/weight-hints${query({ ids: exerciseIds.join(',') })}`),
     updateHistoricalSet: (setId, patch) =>
       write<{ ok: true }>(`/history/sets/${setId}`, 'PATCH', patch).then(() => undefined),
     lastCompleted: (routineId) => read<CompletedSession | null>(`/history/last${query({ routineId })}`),

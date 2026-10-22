@@ -39,6 +39,19 @@ test('serializes writes and keeps the queue after an expired read', async () => 
   expect(pendingWriteCount()).toBe(0);
 });
 
+test('asks for weight hints in one read and skips the request without exercises', async () => {
+  const urls: string[] = [];
+  global.fetch = (async (input: RequestInfo | URL) => {
+    urls.push(String(input));
+    return json({ 3: { lastWeightKg: 50, targetWeightKg: 60 } });
+  }) as typeof fetch;
+  const gym = createHttpGymDb('/api');
+  expect(await gym.exerciseWeightHints([])).toEqual({});
+  expect(urls).toEqual([]);
+  expect(await gym.exerciseWeightHints([3, 4])).toEqual({ 3: { lastWeightKg: 50, targetWeightKg: 60 } });
+  expect(urls).toEqual(['/api/exercises/weight-hints?ids=3%2C4']);
+});
+
 test('does not retry an access denial', async () => {
   let calls = 0;
   global.fetch = (async () => {

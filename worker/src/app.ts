@@ -11,6 +11,7 @@ import type { RoutineJson } from '@/domain/types';
 
 import { allowedDevOrigin, authenticate, devBypassEnabled, devCorsHeaders, type AccessEnv, type Identity } from './access';
 import { createD1Driver } from './d1Driver';
+import { parseExerciseIds, routineDraft, setPatch } from './schemas';
 
 const catalog = catalogJson as RoutineJson[];
 
@@ -20,31 +21,6 @@ export type Env = AccessEnv & {
 };
 
 type AppVars = { identity: Identity; gym: GymDb; driver: SqlDriver };
-
-const routineDraft = z.object({
-  id: z.string().nullable(),
-  title: z.string(),
-  level: z.string(),
-  sort: z.number().int(),
-  days: z.array(z.object({
-    id: z.number().int().nullable(),
-    title: z.string(),
-    sort: z.number().int(),
-    exercises: z.array(z.object({
-      id: z.number().int().nullable(),
-      name: z.string(),
-      sets: z.number().int(),
-      reps: z.number().int(),
-      sort: z.number().int(),
-    })),
-  })),
-});
-
-const setPatch = z.object({
-  completed: z.boolean().optional(),
-  weightKg: z.number().nullable().optional(),
-  actualReps: z.number().int().nullable().optional(),
-}).strict();
 
 function positiveInt(value: string): number | null {
   const parsed = Number(value);
@@ -197,6 +173,11 @@ export function createApp() {
     if (!id || !body.success) throw invalid();
     await c.get('gym').updateHistoricalSet(id, body.data);
     return c.json({ ok: true });
+  });
+  app.get('/api/exercises/weight-hints', async (c) => {
+    const ids = parseExerciseIds(c.req.query('ids'));
+    if (!ids) throw invalid();
+    return c.json(await c.get('gym').exerciseWeightHints(ids));
   });
   app.get('/api/exercises/:id/previous-sets', async (c) => {
     const id = positiveInt(c.req.param('id'));

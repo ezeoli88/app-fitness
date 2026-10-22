@@ -184,6 +184,63 @@ export function registerRepositoryContract(
     same(await driver.first('SELECT COUNT(*) AS count FROM session_sets'), { count: 0 });
   }));
 
+  test('roundtrips the optional target weight through save, reads, edits and duplicates', () => withDriver(async (driver) => {
+    const gym = createGymDb(driver);
+    const draft = sampleRoutine();
+    draft.days[0].exercises[0].targetWeightKg = 62.5;
+    draft.days[0].exercises.push({ id: null, name: 'Remo', sets: 3, reps: 10, sort: 1 });
+    const routineId = await gym.saveRoutine(draft);
+    await gym.setActiveRoutine(routineId);
+    const day = (await gym.listDays(routineId))[0];
+    same((await gym.listExercises(day.id)).map((exercise) => exercise.targetWeightKg), [62.5, null]);
+    same((await gym.getHomeSnapshot()).days[0].exercises.map((exercise) => exercise.targetWeightKg), [62.5, null]);
+    const saved = await gym.getRoutineDraft(routineId);
+    same(saved?.days[0].exercises.map((exercise) => exercise.targetWeightKg), [62.5, null]);
+
+    saved!.days[0].exercises[0].targetWeightKg = null;
+    saved!.days[0].exercises[1].targetWeightKg = 0;
+    saved!.days.push({ id: null, title: 'Día B', sort: 1, exercises: [{ id: null, name: 'Press', sets: 2, reps: 5, sort: 0, targetWeightKg: 40 }] });
+    await gym.saveRoutine(saved!);
+    const edited = await gym.getRoutineDraft(routineId);
+    same(edited?.days.map((item) => item.exercises.map((exercise) => exercise.targetWeightKg)), [[null, 0], [40]]);
+
+    const copyId = await gym.duplicateRoutine(routineId);
+    const copy = await gym.getRoutineDraft(copyId!);
+    same(copy?.days.map((item) => item.exercises.map((exercise) => exercise.targetWeightKg)), [[null, 0], [40]]);
+    await rejects(() => gym.saveRoutine({ ...edited!, days: [{ ...edited!.days[0], exercises: [{ ...edited!.days[0].exercises[0], targetWeightKg: -5 }] }] }), 'peso objetivo');
+  }));
+
+  test('reports the last weight used in a closed session next to the target weight', () => withDriver(async (driver) => {
+    const gym = createGymDb(driver);
+    const draft = sampleRoutine();
+    draft.days[0].exercises[0].targetWeightKg = 60;
+    draft.days[0].exercises.push({ id: null, name: 'Remo', sets: 1, reps: 10, sort: 1 });
+    const routineId = await gym.saveRoutine(draft);
+    const day = (await gym.listDays(routineId))[0];
+    const [squat, row] = await gym.listExercises(day.id);
+    same(await gym.exerciseWeightHints([squat.id, row.id]), {
+      [squat.id]: { lastWeightKg: null, targetWeightKg: 60 },
+      [row.id]: { lastWeightKg: null, targetWeightKg: null },
+    });
+
+    const first = await gym.getOrCreateOpenSession(day.id);
+    await gym.updateSessionSet(first.id, squat.id, 0, { completed: true, weightKg: 50 });
+    await gym.updateSessionSet(first.id, squat.id, 1, { completed: true, weightKg: 55 });
+    same(await gym.exerciseWeightHints([squat.id]), { [squat.id]: { lastWeightKg: null, targetWeightKg: 60 } }, 'la sesión abierta no cuenta');
+    await gym.finishSession(first.id, '2026-10-01T10:00:00.000Z');
+    same(await gym.exerciseWeightHints([squat.id]), { [squat.id]: { lastWeightKg: 55, targetWeightKg: 60 } });
+
+    const second = await gym.getOrCreateOpenSession(day.id);
+    await gym.updateSessionSet(second.id, squat.id, 0, { completed: true, weightKg: 0 });
+    await gym.updateSessionSet(second.id, squat.id, 1, { weightKg: 90 });
+    await gym.finishSession(second.id, '2026-10-08T10:00:00.000Z');
+    same(await gym.exerciseWeightHints([squat.id, squat.id, row.id]), {
+      [squat.id]: { lastWeightKg: 0, targetWeightKg: 60 },
+      [row.id]: { lastWeightKg: null, targetWeightKg: null },
+    }, 'gana la serie realizada más reciente, aunque sea cero');
+    same(await gym.exerciseWeightHints([]), {});
+  }));
+
   test('builds the home snapshot in one read and reports set state', () => withDriver(async (driver) => {
     const gym = createGymDb(driver);
     const routineId = await gym.saveRoutine(sampleRoutine());

@@ -1,4 +1,24 @@
-import { nextTrainingDay, pickActiveRoutine } from './routine';
+import type { RoutineDraft } from './types';
+import { nextTrainingDay, pickActiveRoutine, validateRoutineDraft } from './routine';
+
+function draftWithTarget(targetWeightKg: number | null | undefined): RoutineDraft {
+  return {
+    id: null,
+    title: 'Fuerza',
+    level: 'x',
+    sort: 0,
+    days: [{ id: null, title: 'Día A', sort: 0, exercises: [{ id: null, name: 'Press', sets: 3, reps: 8, sort: 0, targetWeightKg }] }],
+  };
+}
+
+test('target weight is optional and must be a non-negative number', () => {
+  expect(validateRoutineDraft(draftWithTarget(undefined))).toBeNull();
+  expect(validateRoutineDraft(draftWithTarget(null))).toBeNull();
+  expect(validateRoutineDraft(draftWithTarget(0))).toBeNull();
+  expect(validateRoutineDraft(draftWithTarget(42.5))).toBeNull();
+  expect(validateRoutineDraft(draftWithTarget(-1))).toContain('peso objetivo');
+  expect(validateRoutineDraft(draftWithTarget(Number.NaN))).toContain('peso objetivo');
+});
 
 const catalog = [
   { id: 'principiantes', title: 'Principiantes', level: 'principiante', sort: 0 },
