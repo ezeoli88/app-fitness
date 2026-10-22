@@ -1,0 +1,30 @@
+name = "rutina"
+main = "src/index.ts"
+compatibility_date = "2026-10-22"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [ "/api/*" ]
+
+[placement]
+mode = "smart"
+
+[observability]
+enabled = true
+
+# Dominio del equipo y AUD de la aplicación Access. Son públicos en el JWT.
+# El email del dueño va por secreto.
+[vars]
+ACCESS_TEAM_DOMAIN = "https://ekiolivier.cloudflareaccess.com"
+ACCESS_AUD = "e0346451fe868357ac079ea927b3afb5d1ee44c3a48a0494fe085e6143482349"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rutina-db"
+database_id = "d7d1a017-9a0e-4094-b446-30ec0e0e0a3a"
+migrations_dir = "migrations"

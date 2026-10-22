@@ -1,6 +1,6 @@
 # Rutina
 
-Aplicación personal de entrenamiento, local y sin cuentas. Expo SDK 57, React Native, Expo Router y SQLite. Android es la plataforma principal.
+Aplicación web personal de entrenamiento. Los datos viven en Cloudflare D1, detrás de un Worker. El acceso lo resuelve Cloudflare Access. No hay registro, ni sesión propia, ni app nativa.
 
 ## Funciones
 
@@ -9,64 +9,54 @@ Aplicación personal de entrenamiento, local y sin cuentas. Expo SDK 57, React N
 - Rutinas editables, duplicación con historial independiente, archivo y orden de días y ejercicios. Quitar un ejercicio y agregar otro crea una identidad nueva.
 - Las sesiones conservan sus nombres y objetivos originales aunque se edite la rutina.
 - Próximo día sugerido, prioridad para la última sesión abierta utilizada, historial por páginas de 20, filtros y corrección de valores.
-- Descanso automático de 90 segundos, configurable entre 15 y 600, con extensión, omisión y aviso local. Sin permiso se conserva el contador y la vibración en primer plano.
-- Temas claro y oscuro.
+- Descanso automático de 90 segundos, configurable entre 15 y 600, con extensión, omisión y aviso en el navegador. Sin permiso se conserva el contador en la pestaña.
+- Temas claro y oscuro. El tema y el temporizador activo quedan en este navegador. La rutina activa y la duración del descanso quedan en D1.
 
-## Ejecutar en Android
+## Datos
 
-Requisitos: Node 22.13 o posterior (Node 24 para las pruebas con node:sqlite), JDK 17, Android SDK y un emulador abierto. Instalar las dependencias con `npm ci`.
+La única fuente de datos es la API del Worker. El navegador no guarda el entrenamiento. Un respaldo semanal exporta la D1. El paso a paso de Access y del deploy está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
 
-```sh
-npm run android
-```
+## Web local
 
-Este comando compila e instala la app nativa y levanta Metro. Expo Go no es necesario. Para reutilizar la instalación de desarrollo:
+Requisito: Node 22.13 o posterior. El front es Vite + React. Las rutas usan TanStack Router, los datos TanStack Query y el editor TanStack Form. Instalar las dependencias con `npm ci` en la raíz y en `worker/`.
 
-```sh
-npx expo start --host lan --port 8081
-adb reverse tcp:8081 tcp:8081
-adb shell am start -n com.ezequiel.rutina/.MainActivity
-```
+La web de desarrollo, en `http://127.0.0.1:8081`, proxea `/api` al Worker en `http://127.0.0.1:8787`. Ese proceso acepta el bypass de Access solo si el host es `localhost` o `127.0.0.1`. En cualquier otro host el bypass se ignora.
 
-Metro debe seguir abierto para usar el APK de desarrollo. Si aparece “Unable to load script”, comprobar que `http://127.0.0.1:8081/status` responda `packager-status:running`. En este equipo, `--host localhost` vinculaba el servidor solo a IPv6; `--host lan` permite la conexión del emulador.
-
-Para una instalación que abra sin Metro:
+Si ya habías creado una D1 local con el esquema anterior, borrá `worker/.wrangler` antes de aplicar las migraciones.
 
 ```sh
-npx expo run:android --variant release --no-bundler
+cp worker/.dev.vars.example worker/.dev.vars
+cd worker && npm ci
+npx wrangler d1 migrations apply rutina-db --local
+npx wrangler dev --port 8787 --ip 127.0.0.1
 ```
 
-En PowerShell, si npm/npx no están en PATH, usar `node node_modules/expo/bin/cli` en lugar de `npx expo`.
+En otra terminal, desde la raíz: `npm run dev`. Abrí `http://127.0.0.1:8081`.
 
-También se puede compilar el APK para un emulador x86_64, desde android:
+El build de producción no define `VITE_API_URL`: la app usa `/api` en el mismo origen. Para ver ese build:
 
-```powershell
-.\gradlew.bat :app:assembleRelease -PreactNativeArchitectures=x86_64 --max-workers=2
-adb install -r app/build/outputs/apk/release/app-release.apk
+```sh
+npm run build
+cd worker && npx wrangler dev --port 8787 --ip 127.0.0.1
 ```
 
-El APK local usa la firma de desarrollo del proyecto; no está preparado para publicar en una tienda. Para un teléfono ARM hay que compilar la arquitectura correspondiente.
+Abrí `http://127.0.0.1:8787`.
 
-## Datos y recuperación
+## Cloudflare
 
-SQLite se almacena en `rutina.db` dentro del almacenamiento privado de la app. La migración a v4 conserva identificadores, fechas, preferencias y progreso. Antes de migrar una instalación existente se crea `rutina-antes-de-migrar-v4.db`. Si falla la migración, se ofrece reintentar y no se borra la base.
-
-Las sesiones antiguas se reconstruyen con los objetivos disponibles al migrar; peso y repeticiones reales quedan sin dato. Se conservan las marcas de ejercicios retirados aunque su nombre u objetivo original ya no esté disponible.
-
-Desinstalar elimina el almacenamiento local de Android. Para actualizar conservando datos, instalar con `adb install -r` y evitar desinstalar o borrar el almacenamiento. La copia previa a migrar también es local y no sustituye un respaldo externo.
+Hay un solo entorno, el de producción. La D1 `rutina-db` está creada en `weur`, con `0001_init.sql` aplicada, y el Worker es [rutina.ekiolivier.workers.dev](https://rutina.ekiolivier.workers.dev). `ACCESS_TEAM_DOMAIN` es `https://ekiolivier.cloudflareaccess.com` y el AUD está en `worker/wrangler.toml`. El paso a paso está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
 
 ## Verificación
 
 ```sh
-node node_modules/jest/bin/jest.js --runInBand --watchAll=false
-node node_modules/typescript/bin/tsc --noEmit
+npm test
+npm run typecheck
+npm run build
+node scripts/check-web-bundle.mjs
+cd worker && npm test && npm run typecheck && npx wrangler deploy --dry-run
 git diff --check
 ```
 
-Las pruebas incluyen SQLite real mediante node:sqlite, migraciones y rollback, snapshots, escrituras concurrentes, paginación de más de 50 sesiones, sugerencias y reconciliación del temporizador con notificaciones simuladas.
+`wrangler deploy --dry-run` necesita el `dist/` de Vite. No publica nada.
 
-El registro de pruebas automáticas y de los flujos comprobados en Android está en [docs/VALIDATION.md](docs/VALIDATION.md).
-
-La entrega de avisos con la app cerrada o el teléfono bloqueado depende de los permisos y restricciones de Android. Verificar también en un dispositivo físico antes de distribuir.
-
-Documentación: [Expo SDK 57](https://docs.expo.dev/versions/v57.0.0/), [SQLite](https://docs.expo.dev/versions/v57.0.0/sdk/sqlite/), [notificaciones](https://docs.expo.dev/versions/v57.0.0/sdk/notifications/).
+Las pruebas del Worker cubren el repositorio sobre D1, la siembra del catálogo, escrituras concurrentes y la paginación del historial. El navegador se prueba con Playwright (`npx playwright test --config e2e/playwright.config.ts`) contra ese build. El registro está en [docs/VALIDATION.md](docs/VALIDATION.md).
