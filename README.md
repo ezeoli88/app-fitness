@@ -44,7 +44,7 @@ Abrí `http://127.0.0.1:8787`.
 
 ## Cloudflare
 
-Hay un solo entorno, el de producción. La D1 `rutina-db` está creada en `weur`, con `0001_init.sql` aplicada, y el Worker es [rutina.ekiolivier.workers.dev](https://rutina.ekiolivier.workers.dev). `ACCESS_TEAM_DOMAIN` y `ACCESS_AUD` en `worker/wrangler.toml` siguen en placeholder hasta que Zero Trust quede activo. El paso a paso está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
+Hay un solo entorno, el de producción. La D1 `rutina-db` está creada en `weur`, con `0001_init.sql` aplicada, y el Worker es [rutina.ekiolivier.workers.dev](https://rutina.ekiolivier.workers.dev). `ACCESS_TEAM_DOMAIN` es `https://ekiolivier.cloudflareaccess.com` y el AUD está en `worker/wrangler.toml`. El paso a paso está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
 
 ## Verificación
 

@@ -17,11 +17,11 @@ mode = "smart"
 [observability]
 enabled = true
 
-# Placeholders. Zero Trust todavía se está activando.
-# Reemplazá el dominio del equipo y el AUD antes de publicar.
+# Dominio del equipo y AUD de la aplicación Access. Son públicos en el JWT.
+# El email del dueño va por secreto.
 [vars]
-ACCESS_TEAM_DOMAIN = "https://pending.cloudflareaccess.com"
-ACCESS_AUD = "pending-access-aud"
+ACCESS_TEAM_DOMAIN = "https://ekiolivier.cloudflareaccess.com"
+ACCESS_AUD = "e0346451fe868357ac079ea927b3afb5d1ee44c3a48a0494fe085e6143482349"
 
 [[d1_databases]]
 binding = "DB"
