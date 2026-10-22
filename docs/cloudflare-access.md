@@ -2,7 +2,7 @@
 
 Esta guía es para el dueño de la app. El email del dueño y el token de servicio no se guardan en el repositorio. El dominio del equipo y el AUD sí: son públicos en el JWT.
 
-Hay un solo Worker, `rutina`, en https://rutina.ekiolivier.workers.dev. El build de Vite (`dist/`) sale de Static Assets. Solo `/api/*` entra a Hono (`run_worker_first`). No se usa Cloudflare Pages. Hay un solo entorno, el de producción.
+Hay un solo Worker, `rutina`, en https://rutina.ezeo-cloud.workers.dev. El build de Vite (`dist/`) sale de Static Assets. Solo `/api/*` entra a Hono (`run_worker_first`). No se usa Cloudflare Pages. Hay un solo entorno, el de producción.
 
 ## 1. La base D1
 
@@ -23,7 +23,7 @@ En `worker/wrangler.toml`, `ACCESS_TEAM_DOMAIN` es `https://ekiolivier.cloudflar
 En Zero Trust:
 
 1. El equipo (`https://ekiolivier.cloudflareaccess.com`) tiene que permitir solo One-time PIN. Desactivá otros métodos de login.
-2. La aplicación self-hosted usa el hostname `rutina.ekiolivier.workers.dev`.
+2. La aplicación self-hosted usa el hostname `rutina.ezeo-cloud.workers.dev`.
 3. Duración de sesión: 720 horas.
 4. Política Allow: un único email, el del dueño. No la escribas en el repo.
 5. Service Auth: un token `ci-smoke` para el chequeo del deploy.
@@ -39,7 +39,7 @@ npx wrangler secret put ACCESS_SERVICE_CLIENT_IDS
 
 `DEV_BYPASS_ACCESS` no se define en producción. Solo existe en `worker/.dev.vars` (está en `.gitignore`) y en `wrangler.test.toml`.
 
-Salir de la sesión: `https://rutina.ekiolivier.workers.dev/cdn-cgi/access/logout`. En localhost el enlace no se muestra porque no hay Access.
+Salir de la sesión: `https://rutina.ezeo-cloud.workers.dev/cdn-cgi/access/logout`. En localhost el enlace no se muestra porque no hay Access.
 
 ## 3. Secretos de GitHub
 
@@ -49,7 +49,7 @@ En el repositorio:
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CF_ACCESS_CLIENT_ID` y `CF_ACCESS_CLIENT_SECRET`: el token `ci-smoke`.
 
-La URL de la app es `https://rutina.ekiolivier.workers.dev`. El workflow `deploy` corre al hacer push a `main`: migra, compila el front con Vite y publica. Si `ACCESS_TEAM_DOMAIN` o `ACCESS_AUD` vuelven a un placeholder, el job se detiene antes de tocar Cloudflare. Si el chequeo de Access falla, ejecuta `wrangler rollback --message "El chequeo de Access falló"`. En GitHub Actions ese comando no pregunta: toma el mensaje y confirma el retorno a la versión estable anterior.
+La URL de la app es `https://rutina.ezeo-cloud.workers.dev`. El workflow `deploy` corre al hacer push a `main`: migra, compila el front con Vite y publica. Si `ACCESS_TEAM_DOMAIN` o `ACCESS_AUD` vuelven a un placeholder, el job se detiene antes de tocar Cloudflare. Si el chequeo de Access falla, ejecuta `wrangler rollback --message "El chequeo de Access falló"`. En GitHub Actions ese comando no pregunta: toma el mensaje y confirma el retorno a la versión estable anterior.
 
 ## 4. Primer deploy manual
 
@@ -63,7 +63,7 @@ npx wrangler d1 migrations apply rutina-db --remote
 npx wrangler deploy
 ```
 
-`0001_init.sql` ya está aplicada; el apply vuelve a correr sin cambiar esa migración. `wrangler deploy` publica el Worker de la raíz en https://rutina.ekiolivier.workers.dev.
+`0001_init.sql` ya está aplicada; el apply vuelve a correr sin cambiar esa migración. `wrangler deploy` publica el Worker de la raíz en https://rutina.ezeo-cloud.workers.dev.
 
 Comprobación: sin cookie, `/` y `/api/health` responden 302 hacia `*.cloudflareaccess.com`. Con el token de servicio, `/api/health` responde 200 y `/` devuelve el HTML. El script `scripts/access-smoke.mjs` hace esas dos pruebas.
 

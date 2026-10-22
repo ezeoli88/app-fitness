@@ -42,7 +42,7 @@ jobs:
         working-directory: worker
         run: node ../scripts/access-smoke.mjs || (npx wrangler rollback --message "El chequeo de Access falló" && exit 1)
         env:
-          APP_URL: https://rutina.ekiolivier.workers.dev
+          APP_URL: https://rutina.ezeo-cloud.workers.dev
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
