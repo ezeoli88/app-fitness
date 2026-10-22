@@ -6,9 +6,18 @@ import { gym } from '@/api/client';
 import { SetRecord } from '@/components/SetRecord';
 import { UndoToast } from '@/components/UndoToast';
 import { weightPrefills } from '@/domain/prefill';
-import { countCompletedSets } from '@/domain/session';
+import {
+  copyPreviousWrites,
+  countCompletedSets,
+  emptyFinishChoice,
+  finishSetWrites,
+  markSessionSets,
+  markSetWrites,
+  setsWithEnteredValues,
+  type SetKey,
+} from '@/domain/session';
 import { formatOptionalReps, formatOptionalWeight, parseRepsInput, parseWeightInput } from '@/domain/series';
-import type { SessionDetails, SessionSet } from '@/domain/types';
+import type { SessionDetails, SessionSet, SessionSetWrite } from '@/domain/types';
 import { refreshTraining } from '@/query';
 import { useRestTimer } from '@/rest/RestTimer';
 import { confirm } from '@/ui/confirm';
@@ -58,8 +67,14 @@ function SessionPage() {
   const seen = useRef<number | null>(null);
   const [drafts, setDrafts] = useState<Record<FieldKey, FieldDraft>>({} as Record<FieldKey, FieldDraft>);
   const draftsRef = useRef<Record<FieldKey, FieldDraft>>({} as Record<FieldKey, FieldDraft>);
+  // Campos que el usuario escribió o copió en esta pantalla; el peso precargado no entra.
+  const touchedRef = useRef(new Set<`${FieldKey}:${keyof FieldDraft}`>());
   const [toast, setToast] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  const finishingRef = useRef(false);
+  const [copying, setCopying] = useState<number | null>(null);
+  const copyingRef = useRef(false);
   const pendingWrites = useRef<{ current: Promise<unknown> }>({ current: Promise.resolve() });
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -86,6 +101,7 @@ function SessionPage() {
     }
     draftsRef.current = initial;
     setDrafts(initial);
+    touchedRef.current = new Set();
     setError(null);
   }, [opened.data]);
 
@@ -130,6 +146,7 @@ function SessionPage() {
     const rowKey = key(exerciseId, setIndex);
     if (!session) return;
     const next = { ...(draftsRef.current[rowKey] ?? { weight: '', reps: '' }), [field]: text };
+    touchedRef.current.add(`${rowKey}:${field}`);
     draftsRef.current = { ...draftsRef.current, [rowKey]: next };
     setDrafts(draftsRef.current);
     try {
@@ -156,41 +173,21 @@ function SessionPage() {
     }
   };
 
-  const flushDrafts = async (): Promise<boolean> => {
-    if (!session) return false;
+  /** Lee los borradores de todas las series. Si alguno no es válido avisa y devuelve null. */
+  const readFinishSets = (current: SessionDetails): SessionSetWrite[] | null => {
     try {
-      const changes: { exerciseId: number; index: number; weightKg: number | null; actualReps: number | null }[] = [];
-      for (const exercise of session.exercises) {
-        for (const series of exercise.series) {
-          const draft = draftsRef.current[key(exercise.sourceExerciseId, series.setIndex)] ?? { weight: '', reps: '' };
-          changes.push({
-            exerciseId: exercise.sourceExerciseId,
-            index: series.setIndex,
-            weightKg: parseWeightInput(draft.weight),
-            actualReps: parseRepsInput(draft.reps),
-          });
-        }
-      }
-      await queueOperation(pendingWrites.current, async () => {
-        for (const change of changes) {
-          await gym.updateSessionSet(session.id, change.exerciseId, change.index, {
-            weightKg: change.weightKg,
-            actualReps: change.actualReps,
-          });
-        }
-      });
-      return true;
+      return finishSetWrites(current, (exerciseId, setIndex) => draftsRef.current[key(exerciseId, setIndex)]);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Revisá los datos de las series.';
       setError(message);
       confirm({ title: 'Revisá los datos', message, actions: [{ text: 'Entendido' }] });
-      return false;
+      return null;
     }
   };
 
   const onToggle = (exerciseId: number, setIndex: number) => {
     const current = sessionRef.current;
-    if (!current || current.status !== 'open' || toast) return;
+    if (!current || current.status !== 'open' || toast || finishingRef.current) return;
     const exercise = current.exercises.find((item) => item.sourceExerciseId === exerciseId);
     const series = exercise?.series.find((item) => item.setIndex === setIndex);
     if (!exercise || !series) return;
@@ -245,32 +242,52 @@ function SessionPage() {
     });
   };
 
+  // Un solo PATCH guarda peso y repeticiones de todas las series copiadas; no las marca como realizadas.
   const copyPrevious = async (exerciseId: number) => {
-    if (!session || session.status !== 'open') return;
-    const previousSets = previous[exerciseId] ?? [];
-    const exercise = session.exercises.find((item) => item.sourceExerciseId === exerciseId);
-    if (!exercise || previousSets.length === 0) return;
+    const current = sessionRef.current;
+    if (!current || current.status !== 'open' || finishingRef.current || copyingRef.current) return;
+    const exercise = current.exercises.find((item) => item.sourceExerciseId === exerciseId);
+    if (!exercise) return;
+    const writes = copyPreviousWrites(exercise, previous[exerciseId] ?? []);
+    if (writes.length === 0) return;
     const updated = { ...draftsRef.current };
-    for (let index = 0; index < exercise.series.length; index++) {
-      const prior = previousSets[index];
-      if (!prior) continue;
-      updated[key(exerciseId, index)] = {
-        weight: formatOptionalWeight(prior.weightKg),
-        reps: formatOptionalReps(prior.actualReps),
+    for (const { setIndex, patch } of writes) {
+      touchedRef.current.add(`${key(exerciseId, setIndex)}:weight`).add(`${key(exerciseId, setIndex)}:reps`);
+      updated[key(exerciseId, setIndex)] = {
+        weight: formatOptionalWeight(patch.weightKg ?? null),
+        reps: formatOptionalReps(patch.actualReps ?? null),
       };
     }
     draftsRef.current = updated;
     setDrafts(updated);
-    await queueOperation(pendingWrites.current, async () => {
-      for (let index = 0; index < exercise.series.length; index++) {
-        const prior = previousSets[index];
-        if (!prior) continue;
-        await gym.updateSessionSet(session.id, exerciseId, index, { weightKg: prior.weightKg, actualReps: prior.actualReps });
-      }
-    });
-    const refreshed = await gym.getSessionDetails(session.id);
-    sessionRef.current = refreshed;
-    setSession(refreshed);
+    copyingRef.current = true;
+    setCopying(exerciseId);
+    setError(null);
+    try {
+      await queueOperation(pendingWrites.current, () => gym.updateSessionSets(current.id, writes));
+      const latest = sessionRef.current;
+      if (latest?.id !== current.id) return;
+      const copied = new Map(writes.map(({ setIndex, patch }) => [setIndex, patch]));
+      const next: SessionDetails = {
+        ...latest,
+        exercises: latest.exercises.map((item) => item.sourceExerciseId === exerciseId
+          ? {
+              ...item,
+              series: item.series.map((set) => {
+                const patch = copied.get(set.setIndex);
+                return patch ? { ...set, weightKg: patch.weightKg ?? null, actualReps: patch.actualReps ?? null } : set;
+              }),
+            }
+          : item),
+      };
+      sessionRef.current = next;
+      setSession(next);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'No se pudieron copiar los valores anteriores.');
+    } finally {
+      copyingRef.current = false;
+      setCopying(null);
+    }
   };
 
   const discardEmptySession = async () => {
@@ -294,17 +311,62 @@ function SessionPage() {
     });
   };
 
-  const finish = async () => {
-    if (!session || session.status !== 'open' || !(await flushDrafts())) return;
-    const fresh = await gym.getSessionDetails(session.id);
-    if (!fresh) {
-      setError('No encontramos la sesión abierta.');
+  /** Series sin marcar con datos cargados, según los borradores y lo guardado. */
+  const enteredSets = (current: SessionDetails, currentDrafts: Record<FieldKey, FieldDraft>): SetKey[] =>
+    setsWithEnteredValues(
+      current,
+      (exerciseId, setIndex) => currentDrafts[key(exerciseId, setIndex)],
+      (exerciseId, setIndex, field) => touchedRef.current.has(`${key(exerciseId, setIndex)}:${field}`)
+    );
+
+  // Un solo POST guarda todas las series (marcando `marks` como realizadas) y cierra la sesión.
+  const saveAndFinish = async (marks: SetKey[] = []) => {
+    const current = sessionRef.current;
+    if (!current || current.status !== 'open' || finishingRef.current) return;
+    const read = readFinishSets(current);
+    if (!read) return;
+    const sets = markSetWrites(read, marks);
+    finishingRef.current = true;
+    setFinishing(true);
+    setError(null);
+    // El descanso se corta en pantalla al instante; no se espera porque puede quedar detrás del pedido de avisos.
+    void rest.skipRest(current.id).catch(() => undefined);
+    try {
+      const completedAt = new Date().toISOString();
+      const status = await queueOperation(pendingWrites.current, () => gym.finishSession(current.id, completedAt, sets));
+      const finished: SessionDetails = { ...markSessionSets(sessionRef.current ?? current, marks), status, completedAt };
+      sessionRef.current = finished;
+      setSession(finished);
+      setToast(true);
+      timeoutRef.current = setTimeout(() => { void navigate({ to: '/', replace: true }); }, UNDO_MS);
+      void refreshTraining().catch(() => undefined);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'No se pudo finalizar la sesión.';
+      setError(message);
+      confirm({ title: 'No se pudo finalizar', message, actions: [{ text: 'Entendido' }] });
+    } finally {
+      finishingRef.current = false;
+      setFinishing(false);
+    }
+  };
+
+  const finish = () => {
+    const current = sessionRef.current;
+    if (!current || current.status !== 'open' || finishingRef.current || !readFinishSets(current)) return;
+    const completed = countCompletedSets(current.completedSets);
+    const choice = emptyFinishChoice(completed, enteredSets(current, draftsRef.current));
+    if (choice.kind === 'mark') {
+      confirm({
+        title: 'Entrenamiento vacío',
+        message: `No marcaste ninguna serie, pero ${choice.sets.length === 1 ? 'una tiene datos cargados' : `${choice.sets.length} tienen datos cargados`}.`,
+        actions: [
+          { text: 'Seguir entrenando', style: 'cancel' },
+          { text: 'Marcar series con datos y finalizar', onPress: () => { void saveAndFinish(choice.sets); } },
+        ],
+      });
       return;
     }
-    setSession(fresh);
-    sessionRef.current = fresh;
-    const completed = countCompletedSets(fresh.completedSets);
-    if (completed === 0) {
+    if (choice.kind === 'discard') {
       confirm({
         title: 'Entrenamiento vacío',
         message: 'No hay series registradas.',
@@ -315,24 +377,8 @@ function SessionPage() {
       });
       return;
     }
-    const total = sumTargetSets(fresh);
-    const confirmFinish = () => {
-      void (async () => {
-        try {
-          await rest.skipRest(session.id);
-          if (!(await flushDrafts())) return;
-          const status = await queueOperation(pendingWrites.current, () => gym.finishSession(session.id, new Date().toISOString()));
-          const finished = sessionRef.current ? { ...sessionRef.current, status, completedAt: new Date().toISOString() } : null;
-          sessionRef.current = finished;
-          setSession(finished);
-          setToast(true);
-          await refreshTraining();
-          timeoutRef.current = setTimeout(() => { void navigate({ to: '/', replace: true }); }, UNDO_MS);
-        } catch (reason) {
-          setError(reason instanceof Error ? reason.message : 'No se pudo finalizar la sesión.');
-        }
-      })();
-    };
+    const total = sumTargetSets(current);
+    const confirmFinish = () => { void saveAndFinish(); };
     if (completed < total) {
       confirm({
         title: 'Finalizar entrenamiento',
@@ -367,6 +413,8 @@ function SessionPage() {
   };
 
   const completedSets = session ? countCompletedSets(session.completedSets) : 0;
+  // Descartar solo se ofrece si la sesión está realmente vacía: sin marcas ni datos cargados.
+  const canDiscard = session ? emptyFinishChoice(completedSets, enteredSets(session, drafts)).kind === 'discard' : false;
   const totalSetCount = session ? sumTargetSets(session) : 0;
   const minutes = Math.floor(rest.remainingSeconds / 60);
   const seconds = rest.remainingSeconds % 60;
@@ -378,8 +426,11 @@ function SessionPage() {
 
   const actions = session?.status === 'open' ? (
     <div className="session-actions">
-      <button type="button" className="finish" onClick={() => void finish().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'No se pudo finalizar la sesión.'))}>Finalizar entrenamiento</button>
-      {completedSets === 0 ? <button type="button" className="discard" onClick={discardEmpty}>Descartar sesión vacía</button> : null}
+      <button type="button" className="finish" onClick={finish} disabled={finishing} aria-busy={finishing}>
+        {finishing ? 'Guardando…' : 'Finalizar entrenamiento'}
+      </button>
+      {finishing ? <p className="note" role="status">Guardando el entrenamiento…</p> : null}
+      {canDiscard ? <button type="button" className="discard" onClick={discardEmpty} disabled={finishing}>Descartar sesión vacía</button> : null}
     </div>
   ) : null;
 
@@ -409,7 +460,15 @@ function SessionPage() {
                   </p>
                 </div>
                 {prior.length > 0 && session.status === 'open' ? (
-                  <button type="button" className="copy" onClick={() => void copyPrevious(exercise.sourceExerciseId).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'No se pudieron copiar los valores anteriores.'))}>Copiar anterior</button>
+                  <button
+                    type="button"
+                    className="copy"
+                    onClick={() => void copyPrevious(exercise.sourceExerciseId)}
+                    disabled={copying !== null || finishing}
+                    aria-busy={copying === exercise.sourceExerciseId}
+                  >
+                    {copying === exercise.sourceExerciseId ? 'Copiando…' : 'Copiar anterior'}
+                  </button>
                 ) : null}
               </div>
               {prior.length > 0 ? (
@@ -430,7 +489,7 @@ function SessionPage() {
                     result={series}
                     weightText={draft.weight}
                     repsText={draft.reps}
-                    editable={session.status === 'open'}
+                    editable={session.status === 'open' && !finishing}
                     onWeightChange={(value) => updateText(exercise.sourceExerciseId, series.setIndex, 'weight', value)}
                     onRepsChange={(value) => updateText(exercise.sourceExerciseId, series.setIndex, 'reps', value)}
                     onWeightCommit={() => void commitField(exercise.sourceExerciseId, series.setIndex, 'weight')}
