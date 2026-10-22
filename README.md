@@ -14,7 +14,7 @@ Aplicación web personal de entrenamiento. Los datos viven en Cloudflare D1, det
 
 ## Datos
 
-La única fuente de datos es la API del Worker. El navegador no guarda el entrenamiento. Un respaldo semanal exporta la D1. El paso a paso para crear las bases, Access y el deploy está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
+La única fuente de datos es la API del Worker. El navegador no guarda el entrenamiento. Un respaldo semanal exporta la D1. El paso a paso de Access y del deploy está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
 
 ## Web local
 
@@ -44,7 +44,7 @@ Abrí `http://127.0.0.1:8787`.
 
 ## Cloudflare
 
-Todavía no hay una base ni un equipo de Access creados en esta rama. Los identificadores de `worker/wrangler.toml` son placeholders. El paso a paso está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
+Hay un solo entorno, el de producción. La D1 `rutina-db` está creada en `weur`, con `0001_init.sql` aplicada, y el Worker es [rutina.ekiolivier.workers.dev](https://rutina.ekiolivier.workers.dev). `ACCESS_TEAM_DOMAIN` y `ACCESS_AUD` en `worker/wrangler.toml` siguen en placeholder hasta que Zero Trust quede activo. El paso a paso está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
 
 ## Verificación
 
@@ -53,10 +53,10 @@ npm test
 npm run typecheck
 npm run build
 node scripts/check-web-bundle.mjs
-cd worker && npm test && npm run typecheck && npx wrangler deploy --dry-run --env=""
+cd worker && npm test && npm run typecheck && npx wrangler deploy --dry-run
 git diff --check
 ```
 
-`wrangler deploy --dry-run` necesita el `dist/` de Vite y `--env=""` porque el archivo declara también el ambiente `preview`. No publica nada.
+`wrangler deploy --dry-run` necesita el `dist/` de Vite. No publica nada.
 
 Las pruebas del Worker cubren el repositorio sobre D1, la siembra del catálogo, escrituras concurrentes y la paginación del historial. El navegador se prueba con Playwright (`npx playwright test --config e2e/playwright.config.ts`) contra ese build. El registro está en [docs/VALIDATION.md](docs/VALIDATION.md).

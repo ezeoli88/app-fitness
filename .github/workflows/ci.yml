@@ -42,7 +42,7 @@ jobs:
         working-directory: worker
       - run: npm run typecheck
         working-directory: worker
-      - run: mkdir -p ../dist && npx wrangler deploy --dry-run --env="" --outdir /tmp/rutina-worker
+      - run: mkdir -p ../dist && npx wrangler deploy --dry-run --outdir /tmp/rutina-worker
         working-directory: worker
 
   browser:

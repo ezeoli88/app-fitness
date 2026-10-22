@@ -17,40 +17,14 @@ mode = "smart"
 [observability]
 enabled = true
 
-# El equipo y el AUD son públicos en el JWT. El email del dueño va por secreto.
+# Placeholders. Zero Trust todavía se está activando.
+# Reemplazá el dominio del equipo y el AUD antes de publicar.
 [vars]
-ACCESS_TEAM_DOMAIN = "https://example.cloudflareaccess.com"
-ACCESS_AUD = "replace-with-access-aud-tag"
+ACCESS_TEAM_DOMAIN = "https://pending.cloudflareaccess.com"
+ACCESS_AUD = "pending-access-aud"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "rutina-db"
-database_id = "00000000-0000-4000-8000-000000000001"
+database_id = "d7d1a017-9a0e-4094-b446-30ec0e0e0a3a"
 migrations_dir = "migrations"
-
-[env.preview]
-name = "rutina-preview"
-workers_dev = true
-preview_urls = false
-
-[env.preview.vars]
-ACCESS_TEAM_DOMAIN = "https://example.cloudflareaccess.com"
-ACCESS_AUD = "replace-with-access-aud-tag"
-
-[env.preview.placement]
-mode = "smart"
-
-[env.preview.observability]
-enabled = true
-
-[[env.preview.d1_databases]]
-binding = "DB"
-database_name = "rutina-db-preview"
-database_id = "00000000-0000-4000-8000-000000000002"
-migrations_dir = "migrations"
-
-[env.preview.assets]
-directory = "../dist"
-binding = "ASSETS"
-not_found_handling = "single-page-application"
-run_worker_first = [ "/api/*" ]
