@@ -178,6 +178,10 @@ export function registerRepositoryContract(
     same(await gym.previousExerciseSets(duplicateId!, copiedExercise.id), []);
     const open = await gym.getOrCreateOpenSession((await gym.listDays(routineId))[0].id);
     await gym.updateSessionSet(open.id, originalExercise.id, 0, { weightKg: 15 });
+    await rejects(() => gym.discardEmptySession(open.id), 'datos cargados');
+    assert(await gym.getSessionDetails(open.id), 'una sesión con datos no se descarta');
+    // Repeticiones iguales al objetivo (8) sin peso no cuentan como datos cargados.
+    await gym.updateSessionSet(open.id, originalExercise.id, 0, { weightKg: null, actualReps: 8 });
     await gym.discardEmptySession(open.id);
     assert(await gym.getSessionDetails(open.id) === null, 'la sesión vacía se descarta');
     same(await driver.first('SELECT COUNT(*) AS count FROM session_exercises'), { count: 0 });

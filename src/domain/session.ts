@@ -1,5 +1,5 @@
 import { formatOptionalReps, formatOptionalWeight, parseRepsInput, parseWeightInput } from '@/domain/series';
-import type { SessionDetails, SessionSetWrite } from '@/domain/types';
+import type { SessionDetails, SessionExercise, SessionSet, SessionSetWrite } from '@/domain/types';
 
 export type SetDraft = { weight: string; reps: string };
 
@@ -26,6 +26,97 @@ export function finishSetWrites(
       },
     };
   }));
+}
+
+/**
+ * Regla de "serie con datos cargados" para valores guardados, sin saber si los tocó el usuario en esta pantalla:
+ * tiene peso (0 incluido), o repeticiones distintas del objetivo del ejercicio.
+ * Unas repeticiones iguales al objetivo sin peso no cuentan, porque pueden ser un valor por defecto que nadie cargó.
+ * `discardEmptySession` (src/db/gymDb.ts) aplica la misma regla en SQL; si cambia una, cambiar la otra.
+ */
+export function hasEnteredValues(set: { weightKg: number | null; actualReps: number | null }, targetReps: number): boolean {
+  return set.weightKg !== null || (set.actualReps !== null && set.actualReps !== targetReps);
+}
+
+export type SetKey = { exerciseId: number; setIndex: number };
+
+/**
+ * Series sin marcar que tienen datos cargados.
+ * Por campo: si el usuario lo escribió o copió desde esta pantalla (`touched`), cuenta cualquier texto no vacío
+ * del borrador; si no, se mira solo lo guardado con la regla de `hasEnteredValues` (así el peso precargado,
+ * que vive únicamente en el borrador, no cuenta). No valida los números: eso lo hace `finishSetWrites`.
+ */
+export function setsWithEnteredValues(
+  session: SessionDetails,
+  draftFor: (exerciseId: number, setIndex: number) => SetDraft | undefined,
+  touched: (exerciseId: number, setIndex: number, field: keyof SetDraft) => boolean
+): SetKey[] {
+  return session.exercises.flatMap((exercise) => exercise.series.flatMap((series) => {
+    if (series.completed) return [];
+    const exerciseId = exercise.sourceExerciseId;
+    const draft = draftFor(exerciseId, series.setIndex) ?? { weight: '', reps: '' };
+    const weight = touched(exerciseId, series.setIndex, 'weight')
+      ? draft.weight.trim() !== ''
+      : hasEnteredValues({ weightKg: series.weightKg, actualReps: null }, exercise.reps);
+    const reps = touched(exerciseId, series.setIndex, 'reps')
+      ? draft.reps.trim() !== ''
+      : hasEnteredValues({ weightKg: null, actualReps: series.actualReps }, exercise.reps);
+    return weight || reps ? [{ exerciseId, setIndex: series.setIndex }] : [];
+  }));
+}
+
+/** Las escrituras de cierre con `completed: true` en las series indicadas; el resto queda igual. */
+export function markSetWrites(sets: SessionSetWrite[], marks: SetKey[]): SessionSetWrite[] {
+  const keys = new Set(marks.map((mark) => `${mark.exerciseId}:${mark.setIndex}`));
+  return sets.map((set) => keys.has(`${set.exerciseId}:${set.setIndex}`)
+    ? { ...set, patch: { ...set.patch, completed: true } }
+    : set);
+}
+
+/** La sesión en memoria con las series indicadas marcadas, como queda después de `markSetWrites`. */
+export function markSessionSets(session: SessionDetails, marks: SetKey[]): SessionDetails {
+  if (marks.length === 0) return session;
+  const keys = new Set(marks.map((mark) => `${mark.exerciseId}:${mark.setIndex}`));
+  const completedSets = { ...session.completedSets };
+  const exercises = session.exercises.map((exercise) => {
+    const exerciseId = exercise.sourceExerciseId;
+    if (!marks.some((mark) => mark.exerciseId === exerciseId)) return exercise;
+    const series = exercise.series.map((set) => keys.has(`${exerciseId}:${set.setIndex}`) ? { ...set, completed: true } : set);
+    completedSets[exerciseId] = ensureExerciseMarks(session.completedSets, exerciseId, series.length)
+      .map((done, index) => done || keys.has(`${exerciseId}:${index}`));
+    return { ...exercise, series };
+  });
+  return { ...session, completedSets, exercises };
+}
+
+export type EmptyFinishChoice = { kind: 'finish' } | { kind: 'mark'; sets: SetKey[] } | { kind: 'discard' };
+
+/**
+ * Qué ofrecer al finalizar: cerrar si hay series realizadas; si no, marcar las que tienen datos y cerrar;
+ * y descartar solo si la sesión está realmente vacía.
+ */
+export function emptyFinishChoice(completedCount: number, entered: SetKey[]): EmptyFinishChoice {
+  if (completedCount > 0) return { kind: 'finish' };
+  return entered.length > 0 ? { kind: 'mark', sets: entered } : { kind: 'discard' };
+}
+
+/**
+ * Peso y repeticiones de la sesión anterior, posición por posición, para las series del ejercicio.
+ * No toca la marca de realizada.
+ */
+export function copyPreviousWrites(
+  exercise: SessionExercise & { series: SessionSet[] },
+  previous: SessionSet[]
+): SessionSetWrite[] {
+  return exercise.series.flatMap((series) => {
+    const prior = previous[series.setIndex];
+    if (!prior) return [];
+    return [{
+      exerciseId: exercise.sourceExerciseId,
+      setIndex: series.setIndex,
+      patch: { weightKg: prior.weightKg, actualReps: prior.actualReps },
+    }];
+  });
 }
 
 export function emptyMarks(setCount: number): boolean[] {

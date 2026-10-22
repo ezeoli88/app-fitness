@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { finishBody, parseExerciseIds, routineDraft } from './schemas';
+import { bulkSetsBody, finishBody,parseExerciseIds, routineDraft } from './schemas';
 
 function draft(exercise: Record<string, unknown>) {
   return {
@@ -48,6 +48,26 @@ describe('finishBody', () => {
     expect(finishBody.safeParse({ completedAt, sets: [set({}, { setIndex: -1 })] }).success).toBe(false);
     expect(finishBody.safeParse({ completedAt, sets: [set({}, { sessionId: 9 })] }).success).toBe(false);
     expect(finishBody.safeParse({ completedAt, sets: Array.from({ length: 501 }, () => set({ completed: true })) }).success).toBe(false);
+  });
+});
+
+describe('bulkSetsBody', () => {
+  const set = (patch: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    ({ exerciseId: 3, setIndex: 0, patch, ...extra });
+
+  it('acepta entre 1 y 500 series con la misma forma que el cierre', () => {
+    expect(bulkSetsBody.safeParse({ sets: [set({ weightKg: 42.5, actualReps: 8 }), set({ weightKg: null }, { setIndex: 1 })] }).success).toBe(true);
+    expect(bulkSetsBody.safeParse({ sets: Array.from({ length: 500 }, () => set({ weightKg: 1 })) }).success).toBe(true);
+  });
+
+  it('rechaza un pedido vacío, demasiado grande o mal formado', () => {
+    expect(bulkSetsBody.safeParse({}).success).toBe(false);
+    expect(bulkSetsBody.safeParse({ sets: [] }).success).toBe(false);
+    expect(bulkSetsBody.safeParse({ sets: Array.from({ length: 501 }, () => set({ weightKg: 1 })) }).success).toBe(false);
+    expect(bulkSetsBody.safeParse({ sets: [set({ actualReps: 2.5 })] }).success).toBe(false);
+    expect(bulkSetsBody.safeParse({ sets: [set({ other: true })] }).success).toBe(false);
+    expect(bulkSetsBody.safeParse({ sets: [set({}, { exerciseId: 0 })] }).success).toBe(false);
+    expect(bulkSetsBody.safeParse({ sets: [set({ weightKg: 1 })], completedAt: 'x' }).success).toBe(false);
   });
 });
 

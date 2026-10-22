@@ -178,6 +178,8 @@ export type GymDb = {
     setIndex: number,
     patch: SessionSetPatch
   ): Promise<void>;
+  /** Escribe varias series de una sesión abierta en un único batch. Si una serie es inválida no se escribe nada. */
+  updateSessionSets(sessionId: number, sets: SessionSetWrite[]): Promise<void>;
   /** Escribe `sets` y cierra la sesión en un único batch. Si una serie es inválida no se escribe nada. */
   finishSession(sessionId: number, completedAtIso: string, sets?: SessionSetWrite[]): Promise<SessionStatus>;
   reopenSession(sessionId: number): Promise<void>;
@@ -820,13 +822,33 @@ export function createGymDb(driver: SqlDriver): GymDb {
       });
     },
 
+    async updateSessionSets(sessionId, sets) {
+      assertSetWrites(sets);
+      await driver.exclusive(async () => {
+        const plan = await planSetWrites(driver, sessionId, sets, 'La sesión ya está cerrada.');
+        if (!plan) throw new DomainError('Esa serie ya no está disponible.');
+        const results = await driver.batch([
+          ...plan.stmts,
+          {
+            sql: "UPDATE sessions SET last_used_at = ? WHERE id = ? AND status = 'open'",
+            params: [new Date().toISOString(), sessionId],
+          },
+        ]);
+        // Todas las escrituras comparten la condición de sesión abierta: si se cerró en el medio, no se aplicó ninguna.
+        if (results.every((result) => result.changes > 0)) return;
+        throw new DomainError('La sesión ya está cerrada.');
+      });
+    },
+
     async finishSession(sessionId, completedAtIso, sets = []) {
-      for (const { patch } of sets) {
-        if (patch.weightKg !== undefined) assertWeight(patch.weightKg);
-        if (patch.actualReps !== undefined) assertReps(patch.actualReps);
-      }
+      assertSetWrites(sets);
       return driver.exclusive(async () => {
-        const stmts = sets.length > 0 ? await planSetWrites(driver, sessionId, sets) : [];
+        let stmts: Stmt[] = [];
+        if (sets.length > 0) {
+          const plan = await planSetWrites(driver, sessionId, sets, 'La sesión ya estaba finalizada.');
+          if (!plan || !plan.anyCompleted) throw new DomainError('Marcá al menos una serie antes de finalizar.', 422);
+          stmts = plan.stmts;
+        }
         const doneSets = `(
           SELECT COALESCE(SUM(ss.completed), 0)
           FROM session_exercises se JOIN session_sets ss ON ss.session_exercise_id = se.id
@@ -887,6 +909,13 @@ export function createGymDb(driver: SqlDriver): GymDb {
     },
 
     async discardEmptySession(sessionId) {
+      // Misma regla que `hasEnteredValues` (src/domain/session.ts): peso, o repeticiones distintas del objetivo.
+      const enteredValues = `EXISTS (
+        SELECT 1 FROM session_exercises se
+        JOIN session_sets ss ON ss.session_exercise_id = se.id
+        WHERE se.session_id = sessions.id
+          AND (ss.weight_kg IS NOT NULL OR (ss.actual_reps IS NOT NULL AND ss.actual_reps <> se.reps))
+      )`;
       await driver.exclusive(async () => {
         const result = await driver.run(
           `DELETE FROM sessions
@@ -895,10 +924,20 @@ export function createGymDb(driver: SqlDriver): GymDb {
                SELECT 1 FROM session_exercises se
                JOIN session_sets ss ON ss.session_exercise_id = se.id
                WHERE se.session_id = sessions.id AND ss.completed = 1
-             )`,
+             )
+             AND NOT ${enteredValues}`,
           sessionId
         );
-        if (result.changes === 0) throw new DomainError('Solo se puede descartar una sesión vacía.');
+        if (result.changes > 0) return;
+        const progress = await readProgress(driver, sessionId);
+        const withValues = await driver.first<{ entered: number }>(
+          `SELECT ${enteredValues} AS entered FROM sessions WHERE id = ?`,
+          sessionId
+        );
+        if (progress?.status === 'open' && progress.completed === 0 && withValues?.entered) {
+          throw new DomainError('La sesión tiene series con datos cargados: marcalas y finalizá, o borrá esos datos antes de descartarla.');
+        }
+        throw new DomainError('Solo se puede descartar una sesión vacía.');
       });
     },
 
@@ -1146,11 +1185,24 @@ async function readProgress(driver: SqlDriver, sessionId: number): Promise<{ sta
   return { status: row.status, total: Number(row.total), completed: Number(row.completed) };
 }
 
+function assertSetWrites(sets: SessionSetWrite[]): void {
+  for (const { patch } of sets) {
+    if (patch.weightKg !== undefined) assertWeight(patch.weightKg);
+    if (patch.actualReps !== undefined) assertReps(patch.actualReps);
+  }
+}
+
 /**
- * Valida las series contra una sola lectura y arma un UPDATE por serie para el batch de cierre.
- * Rechaza antes de escribir si alguna serie no existe o si no quedaría ninguna realizada.
+ * Valida las series contra una sola lectura y arma un UPDATE por serie para un batch.
+ * Devuelve null si la sesión no existe; rechaza antes de escribir si está cerrada o si alguna serie no existe.
+ * `anyCompleted` indica si quedaría alguna serie realizada después de aplicar las escrituras.
  */
-async function planSetWrites(driver: SqlDriver, sessionId: number, sets: SessionSetWrite[]): Promise<Stmt[]> {
+async function planSetWrites(
+  driver: SqlDriver,
+  sessionId: number,
+  sets: SessionSetWrite[],
+  closedMessage: string
+): Promise<{ stmts: Stmt[]; anyCompleted: boolean } | null> {
   const rows = await driver.all<{
     status: string;
     sessionExerciseId: number | null;
@@ -1167,8 +1219,8 @@ async function planSetWrites(driver: SqlDriver, sessionId: number, sets: Session
      WHERE s.id = ?`,
     sessionId
   );
-  if (rows.length === 0) throw new DomainError('Marcá al menos una serie antes de finalizar.', 422);
-  if (rows[0].status !== 'open') throw new DomainError('La sesión ya estaba finalizada.');
+  if (rows.length === 0) return null;
+  if (rows[0].status !== 'open') throw new DomainError(closedMessage);
   const known = new Map<string, { sessionExerciseId: number; completed: boolean }>();
   for (const row of rows) {
     if (row.sessionExerciseId === null || row.setIndex === null || row.setIndex >= (row.sets ?? 0)) continue;
@@ -1204,8 +1256,5 @@ async function planSetWrites(driver: SqlDriver, sessionId: number, sets: Session
       params: [...params, target.sessionExerciseId, setIndex, sessionId],
     });
   }
-  if (![...known.values()].some((set) => set.completed)) {
-    throw new DomainError('Marcá al menos una serie antes de finalizar.', 422);
-  }
-  return stmts;
+  return { stmts, anyCompleted: [...known.values()].some((set) => set.completed) };
 }

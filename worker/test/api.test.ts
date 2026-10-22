@@ -248,6 +248,179 @@ describe('finalizar con series', () => {
   });
 });
 
+function bulk(sessionId: number, body: unknown): Promise<Response> {
+  return api(`/api/sessions/${sessionId}/sets/bulk`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+function copiedSets(session: OpenedSession): { exerciseId: number; setIndex: number; patch: { weightKg: number | null; actualReps: number | null } }[] {
+  return session.exercises.flatMap((exercise, exerciseIndex) => exercise.series.map((set) => ({
+    exerciseId: exercise.sourceExerciseId,
+    setIndex: set.setIndex,
+    patch: { weightKg: 30 + exerciseIndex + set.setIndex / 2, actualReps: set.setIndex === 3 ? null : 6 + set.setIndex },
+  })));
+}
+
+describe('series en bloque', () => {
+  it('guarda todas las series en un solo pedido sin marcarlas ni tocar las demás', async () => {
+    const session = await openSevenByFour();
+    const exerciseId = session.exercises[0].sourceExerciseId;
+    await api(`/api/sessions/${session.id}/sets`, {
+      method: 'PATCH',
+      body: JSON.stringify({ exerciseId, setIndex: 0, patch: { completed: true, weightKg: 99, actualReps: 1 } }),
+    });
+    const sets = copiedSets(session).filter((set) => set.exerciseId === exerciseId);
+    const response = await bulk(session.id, { sets });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    const saved = await details(session.id);
+    expect(saved.status).toBe('open');
+    expect(saved.exercises[0].series.map(({ setIndex, completed, weightKg, actualReps }) => ({ setIndex, completed, weightKg, actualReps }))).toEqual([
+      { setIndex: 0, completed: true, weightKg: 30, actualReps: 6 },
+      { setIndex: 1, completed: false, weightKg: 30.5, actualReps: 7 },
+      { setIndex: 2, completed: false, weightKg: 31, actualReps: 8 },
+      { setIndex: 3, completed: false, weightKg: 31.5, actualReps: null },
+    ]);
+    expect(saved.exercises.slice(1).every((exercise) => exercise.series.every((set) => set.weightKg === null))).toBe(true);
+
+    const all = copiedSets(session);
+    expect((await bulk(session.id, { sets: all })).status).toBe(200);
+    const stored = (await details(session.id)).exercises.flatMap((exercise) => exercise.series.map((set) => ({
+      exerciseId: exercise.sourceExerciseId,
+      setIndex: set.setIndex,
+      patch: { weightKg: set.weightKg, actualReps: set.actualReps },
+    })));
+    expect(stored).toEqual(all);
+  });
+
+  it('rechaza una serie inexistente sin escribir las demás', async () => {
+    const session = await openSevenByFour();
+    const sets = copiedSets(session);
+    sets.push({ exerciseId: session.exercises[0].sourceExerciseId, setIndex: 4, patch: { weightKg: 1, actualReps: 1 } });
+    const response = await bulk(session.id, { sets });
+    expect(response.status).toBe(409);
+    expect((await response.json() as { error: string }).error).toContain('no está disponible');
+    const unknownExercise = await bulk(session.id, { sets: [...copiedSets(session).slice(0, 2), { exerciseId: 999999, setIndex: 0, patch: { weightKg: 1 } }] });
+    expect(unknownExercise.status).toBe(409);
+    const saved = await details(session.id);
+    expect(saved.exercises.every((exercise) => exercise.series.every((set) => set.weightKg === null && set.actualReps === null))).toBe(true);
+    expect((await bulk(999999, { sets: copiedSets(session).slice(0, 1) })).status).toBe(409);
+  });
+
+  it('valida el formato y los valores sin escribir nada', async () => {
+    const session = await openSevenByFour();
+    const exerciseId = session.exercises[0].sourceExerciseId;
+    const ok = { exerciseId, setIndex: 1, patch: { weightKg: 10 } };
+    const bad: unknown[] = [
+      null,
+      {},
+      { sets: [] },
+      { sets: 'todas' },
+      { sets: [ok, { exerciseId, setIndex: -1, patch: { weightKg: 1 } }] },
+      { sets: [ok, { exerciseId: 0, setIndex: 0, patch: { weightKg: 1 } }] },
+      { sets: [ok, { exerciseId, setIndex: 0, patch: { completed: 'sí' } }] },
+      { sets: [ok, { exerciseId, setIndex: 0, patch: { extra: 1 } }] },
+      { sets: [ok, { exerciseId, setIndex: 0, patch: { actualReps: 1.5 } }] },
+      { sets: [ok, { exerciseId, setIndex: 0, patch: { weightKg: -1 } }] },
+      { sets: [ok, { exerciseId, setIndex: 0, patch: { actualReps: 0 } }] },
+      { sets: Array.from({ length: 501 }, () => ok) },
+    ];
+    for (const body of bad) {
+      const response = await bulk(session.id, body);
+      expect(response.status, JSON.stringify(body)).toBe(422);
+    }
+    expect((await api(`/api/sessions/abc/sets/bulk`, { method: 'PATCH', body: JSON.stringify({ sets: [ok] }) })).status).toBe(422);
+    expect((await details(session.id)).exercises[0].series[1].weightKg).toBeNull();
+  });
+
+  it('rechaza una sesión cerrada como el PATCH de una serie', async () => {
+    const session = await openSevenByFour();
+    const exerciseId = session.exercises[0].sourceExerciseId;
+    await api(`/api/sessions/${session.id}/sets`, {
+      method: 'PATCH',
+      body: JSON.stringify({ exerciseId, setIndex: 0, patch: { completed: true } }),
+    });
+    expect((await finish(session.id, { completedAt: '2026-10-22T10:00:00.000Z' })).status).toBe(200);
+    const single = await api(`/api/sessions/${session.id}/sets`, {
+      method: 'PATCH',
+      body: JSON.stringify({ exerciseId, setIndex: 1, patch: { weightKg: 5 } }),
+    });
+    const response = await bulk(session.id, { sets: copiedSets(session) });
+    expect(response.status).toBe(single.status);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual(await single.json());
+    const saved = await details(session.id);
+    expect(saved.status).toBe('partial');
+    expect(saved.exercises.every((exercise) => exercise.series.every((set) => set.weightKg === null))).toBe(true);
+  });
+});
+
+function patchSet(sessionId: number, exerciseId: number, setIndex: number, patch: Record<string, unknown>): Promise<Response> {
+  return api(`/api/sessions/${sessionId}/sets`, { method: 'PATCH', body: JSON.stringify({ exerciseId, setIndex, patch }) });
+}
+
+function discard(sessionId: number): Promise<Response> {
+  return api(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+describe('sesión sin marcas con datos cargados', () => {
+  it('no descarta una sesión con peso o repeticiones cargadas y no borra nada', async () => {
+    const session = await openSevenByFour();
+    const exerciseId = session.exercises[0].sourceExerciseId;
+    for (const patch of [{ weightKg: 40 }, { weightKg: 0 }, { weightKg: null, actualReps: 6 }]) {
+      expect((await patchSet(session.id, exerciseId, 2, patch)).status).toBe(200);
+      const response = await discard(session.id);
+      expect(response.status, JSON.stringify(patch)).toBe(409);
+      expect((await response.json() as { error: string }).error).toContain('datos cargados');
+      const saved = await details(session.id);
+      expect(saved?.status).toBe('open');
+      expect(saved.exercises).toHaveLength(7);
+    }
+  });
+
+  it('descarta una sesión realmente vacía, aunque tenga las repeticiones del objetivo sin peso', async () => {
+    const empty = await openSevenByFour();
+    expect((await discard(empty.id)).status).toBe(200);
+    expect(await (await api(`/api/sessions/${empty.id}`)).json()).toBeNull();
+
+    const defaults = await openSevenByFour();
+    for (const exercise of defaults.exercises) {
+      for (const set of exercise.series) await patchSet(defaults.id, exercise.sourceExerciseId, set.setIndex, { actualReps: 10 });
+    }
+    expect((await discard(defaults.id)).status).toBe(200);
+    expect(await (await api(`/api/sessions/${defaults.id}`)).json()).toBeNull();
+  });
+
+  it('una sesión con series marcadas sigue sin poder descartarse', async () => {
+    const session = await openSevenByFour();
+    await patchSet(session.id, session.exercises[0].sourceExerciseId, 0, { completed: true });
+    const response = await discard(session.id);
+    expect(response.status).toBe(409);
+    expect((await response.json() as { error: string }).error).toContain('Solo se puede descartar');
+  });
+
+  it('marca las series con datos y finaliza en el mismo pedido', async () => {
+    const session = await openSevenByFour();
+    const first = session.exercises[0].sourceExerciseId;
+    const second = session.exercises[1].sourceExerciseId;
+    await patchSet(session.id, first, 0, { weightKg: 40 });
+    await patchSet(session.id, second, 3, { actualReps: 7 });
+    // Lo que manda el cliente: todas las series, con completed:true solo en las que tienen datos.
+    const sets = allSets(session, () => false).map((set) => ({
+      ...set,
+      patch: { completed: false, weightKg: null, actualReps: null } as SetWrite['patch'],
+    }));
+    sets[0].patch = { completed: true, weightKg: 40, actualReps: null };
+    sets[7].patch = { completed: true, weightKg: null, actualReps: 7 };
+    const response = await finish(session.id, { completedAt: '2026-10-22T10:00:00.000Z', sets });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'partial' });
+    const saved = await details(session.id);
+    expect(saved.status).toBe('partial');
+    expect(saved.exercises.flatMap((exercise) => exercise.series.filter((set) => set.completed).map((set) => [exercise.sourceExerciseId, set.setIndex])))
+      .toEqual([[first, 0], [second, 3]]);
+  });
+});
+
 describe('activos estáticos', () => {
   it('sirve el índice para una ruta de la aplicación', async () => {
     const response = await SELF.fetch('http://127.0.0.1/session/3');

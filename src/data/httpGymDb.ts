@@ -47,6 +47,8 @@ export function createHttpGymDb(base: string): GymDb & { ensureBootstrapped(): P
     getOrCreateOpenSession: (dayId) => write<SessionDetails>(`/days/${dayId}/sessions`, 'POST'),
     updateSessionSet: (sessionId, exerciseId, setIndex, patch) =>
       write<{ ok: true }>(`/sessions/${sessionId}/sets`, 'PATCH', { exerciseId, setIndex, patch }).then(() => undefined),
+    updateSessionSets: (sessionId, sets) =>
+      write<{ ok: true }>(`/sessions/${sessionId}/sets/bulk`, 'PATCH', { sets }).then(() => undefined),
     finishSession: (sessionId, completedAt, sets) =>
       write<{ status: SessionStatus }>(`/sessions/${sessionId}/finish`, 'POST', sets ? { completedAt, sets } : { completedAt })
         .then((body) => body.status),
