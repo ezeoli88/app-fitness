@@ -1,4 +1,4 @@
-import { confirm, currentConfirm, dismissConfirm, subscribeConfirm } from '@/platform/confirm.web';
+import { confirm, currentConfirm, dismissConfirm, subscribeConfirm } from '@/platform/confirm';
 
 test('keeps a confirmation requested before the host mounts', () => {
   const seen: string[] = [];

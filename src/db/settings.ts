@@ -1,6 +1,7 @@
 import type { SqlDriver, SqlValue } from '@/db/core/driver';
 
-export const SYNC_SETTING_KEYS = ['activeRoutineId', 'restEnabled', 'restDurationSeconds'] as const;
+/** Preferencias que viven en D1. El tema y el temporizador activo quedan en el navegador. */
+export const SERVER_SETTING_KEYS = ['activeRoutineId', 'restEnabled', 'restDurationSeconds'] as const;
 export const DEVICE_SETTING_KEYS = [
   'theme',
   'activeRestTimer',
@@ -8,17 +9,17 @@ export const DEVICE_SETTING_KEYS = [
   'lastConsumedRestNotification',
 ] as const;
 
-export type SyncSettingKey = (typeof SYNC_SETTING_KEYS)[number];
+export type ServerSettingKey = (typeof SERVER_SETTING_KEYS)[number];
 export type DeviceSettingKey = (typeof DEVICE_SETTING_KEYS)[number];
-export type SettingKey = SyncSettingKey | DeviceSettingKey;
+export type SettingKey = ServerSettingKey | DeviceSettingKey;
 
 export interface SettingsStore {
   get(key: SettingKey): Promise<string | null>;
   set(key: SettingKey, value: string): Promise<void>;
 }
 
-export function isSyncSettingKey(key: string): key is SyncSettingKey {
-  return (SYNC_SETTING_KEYS as readonly string[]).includes(key);
+export function isServerSettingKey(key: string): key is ServerSettingKey {
+  return (SERVER_SETTING_KEYS as readonly string[]).includes(key);
 }
 
 export function isDeviceSettingKey(key: string): key is DeviceSettingKey {
@@ -26,10 +27,10 @@ export function isDeviceSettingKey(key: string): key is DeviceSettingKey {
 }
 
 export function isSettingKey(key: string): key is SettingKey {
-  return isSyncSettingKey(key) || isDeviceSettingKey(key);
+  return isServerSettingKey(key) || isDeviceSettingKey(key);
 }
 
-/** Preferencias en la tabla `settings` (Android y D1). */
+/** Preferencias en la tabla `settings` de D1. */
 export function createSqlSettings(driver: SqlDriver): SettingsStore {
   return {
     async get(key) {

@@ -1,6 +1,7 @@
 import { act, create } from 'react-test-renderer';
-import * as Notifications from 'expo-notifications';
-import { AppState, Vibration } from 'react-native';
+import { AppState } from 'react-native';
+
+import { restAlerts } from '@/platform/restAlerts';
 import { RestTimerProvider, useRestTimer } from './RestTimerContext';
 
 const mockSettings = new Map<string, string>();
@@ -19,20 +20,18 @@ jest.mock('@/data/DataProvider', () => ({
     retry: () => undefined,
   }),
 }));
-jest.mock('expo-notifications', () => ({
-  setNotificationHandler: jest.fn(),
-  setNotificationChannelAsync: jest.fn(),
-  getPermissionsAsync: jest.fn(),
-  requestPermissionsAsync: jest.fn(),
-  scheduleNotificationAsync: jest.fn(),
-  cancelScheduledNotificationAsync: jest.fn(),
-  dismissNotificationAsync: jest.fn(),
-  getAllScheduledNotificationsAsync: jest.fn(),
-  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
-  getLastNotificationResponseAsync: jest.fn(async () => null),
-  DEFAULT_ACTION_IDENTIFIER: 'expo.modules.notifications.actions.DEFAULT',
-  AndroidImportance: { HIGH: 4 },
-  SchedulableTriggerInputTypes: { TIME_INTERVAL: 'timeInterval' },
+
+jest.mock('@/platform/restAlerts', () => ({
+  restAlerts: {
+    permission: jest.fn(async () => 'granted'),
+    requestPermission: jest.fn(async () => true),
+    schedule: jest.fn(async () => 'notification-1'),
+    cancel: jest.fn(async () => undefined),
+    listScheduled: jest.fn(async () => []),
+    onOpen: jest.fn(() => () => undefined),
+    buzz: jest.fn(),
+    countdown: jest.fn(),
+  },
 }));
 
 let rest: ReturnType<typeof useRestTimer>;
@@ -44,17 +43,18 @@ beforeEach(() => {
   mockSettings.clear();
   mockSetState.current = { completed: true, status: 'open' };
   jest.clearAllMocks();
-  jest.mocked(Notifications.getPermissionsAsync).mockResolvedValue({ granted: true, canAskAgain: true } as never);
-  jest.mocked(Notifications.getAllScheduledNotificationsAsync).mockResolvedValue([]);
+  jest.mocked(restAlerts.permission).mockResolvedValue('granted');
+  jest.mocked(restAlerts.requestPermission).mockResolvedValue(true);
+  jest.mocked(restAlerts.listScheduled).mockResolvedValue([]);
   let serial = 0;
-  jest.mocked(Notifications.scheduleNotificationAsync).mockImplementation(async () => `notification-${++serial}`);
+  jest.mocked(restAlerts.schedule).mockImplementation(async () => `notification-${++serial}`);
 });
 afterEach(async () => { if (tree) await act(async () => tree.unmount()); });
 
 test('rapid restarts, extensions and origin cancellation leave only one timer', async () => {
   await mount();
   await act(async () => { await Promise.all([rest.startRest(1, 2, 3, 0), rest.startRest(1, 2, 3, 1)]); });
-  expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+  expect(restAlerts.schedule).toHaveBeenCalledTimes(1);
   expect(rest.activeTimer?.setIndex).toBe(1);
   const expires = rest.activeTimer!.expiresAt;
   await act(async () => { await Promise.all([rest.extendRest(), rest.extendRest()]); });
@@ -68,9 +68,9 @@ test('rapid restarts, extensions and origin cancellation leave only one timer', 
 
 test('the countdown appears and disappears before notification work finishes', async () => {
   await mount();
-  let releasePermission!: (value: { granted: boolean; canAskAgain?: boolean }) => void;
-  jest.mocked(Notifications.getPermissionsAsync).mockImplementationOnce(() =>
-    new Promise((resolve) => { releasePermission = resolve as typeof releasePermission; }) as never
+  let releasePermission!: (value: 'granted') => void;
+  jest.mocked(restAlerts.permission).mockImplementationOnce(() =>
+    new Promise((resolve) => { releasePermission = resolve; })
   );
   let started!: Promise<void>;
   act(() => { started = rest.startRest(1, 2, 3, 0); });
@@ -82,20 +82,20 @@ test('the countdown appears and disappears before notification work finishes', a
   let skipped!: Promise<void>;
   act(() => { skipped = rest.skipRest(1, 3, 0); });
   expect(rest.activeTimer).toBeNull();
-  releasePermission({ granted: true, canAskAgain: true });
+  releasePermission('granted');
   await act(async () => { await Promise.all([started, skipped]); });
   expect(mockSettings.get('activeRestTimer')).toBe('');
-  expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+  expect(restAlerts.schedule).not.toHaveBeenCalled();
 });
 
 test('denied permission still persists a countdown, and disabling cancels it', async () => {
-  jest.mocked(Notifications.getPermissionsAsync).mockResolvedValue({ granted: false, canAskAgain: true } as never);
-  jest.mocked(Notifications.requestPermissionsAsync).mockResolvedValue({ granted: false } as never);
+  jest.mocked(restAlerts.permission).mockResolvedValue('denied');
+  jest.mocked(restAlerts.requestPermission).mockResolvedValue(false);
   await mount();
   await act(async () => { await rest.setDurationSeconds(15); await rest.startRest(1, 2, 3, 0); });
   expect(rest.activeTimer).toMatchObject({ sessionId: 1, notificationId: null });
   expect(rest.remainingSeconds).toBe(15);
-  expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+  expect(restAlerts.schedule).not.toHaveBeenCalled();
   await expect(rest.setDurationSeconds(601)).rejects.toThrow();
   await act(async () => { await rest.setEnabled(false); await rest.startRest(1, 2, 3, 0); });
   expect(rest.activeTimer).toBeNull();
@@ -104,45 +104,40 @@ test('denied permission still persists a countdown, and disabling cancels it', a
 test('reopening keeps the saved notification and cancels orphan duplicates', async () => {
   const timer = { sessionId: 1, dayId: 2, exerciseId: 3, setIndex: 0, expiresAt: Date.now() + 90_000, notificationId: 'saved' };
   mockSettings.set('activeRestTimer', JSON.stringify(timer));
-  jest.mocked(Notifications.getAllScheduledNotificationsAsync).mockResolvedValue([
-    { identifier: 'saved', content: { data: { kind: 'rest-timer', sessionId: 1 } } },
-    { identifier: 'orphan', content: { data: { kind: 'rest-timer', sessionId: 1 } } },
-  ] as never);
+  jest.mocked(restAlerts.listScheduled).mockResolvedValue([
+    { id: 'saved', sessionId: 1 },
+    { id: 'orphan', sessionId: 1 },
+  ]);
   await mount();
   expect(rest.activeTimer).toEqual(timer);
-  expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
-  expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('orphan');
-  expect(Notifications.cancelScheduledNotificationAsync).not.toHaveBeenCalledWith('saved');
+  expect(restAlerts.schedule).not.toHaveBeenCalled();
+  expect(restAlerts.cancel).toHaveBeenCalledWith('orphan');
+  expect(restAlerts.cancel).not.toHaveBeenCalledWith('saved');
 });
 
 test('a finished session cannot restore a scheduled rest', async () => {
   mockSettings.set('activeRestTimer', JSON.stringify({ sessionId: 1, dayId: 2, exerciseId: 3, setIndex: 0, expiresAt: Date.now() + 90_000, notificationId: 'saved' }));
   mockSetState.current = { completed: true, status: 'partial' };
-  jest.mocked(Notifications.getAllScheduledNotificationsAsync).mockResolvedValue([
-    { identifier: 'saved', content: { data: { kind: 'rest-timer', sessionId: 1 } } },
-  ] as never);
+  jest.mocked(restAlerts.listScheduled).mockResolvedValue([{ id: 'saved', sessionId: 1 }]);
   await mount();
   expect(rest.activeTimer).toBeNull();
-  expect(Notifications.cancelScheduledNotificationAsync).toHaveBeenCalledWith('saved');
+  expect(restAlerts.cancel).toHaveBeenCalledWith('saved');
 });
 
-test('expiry in the foreground vibrates without removing the delivered notification', async () => {
+test('expiry in the foreground buzzes once and clears the timer', async () => {
   jest.useFakeTimers();
   const oldState = AppState.currentState;
   AppState.currentState = 'active';
-  const vibrate = jest.spyOn(Vibration, 'vibrate').mockImplementation(() => undefined);
   try {
     await mount();
     await act(async () => { await rest.setDurationSeconds(15); await rest.startRest(1, 2, 3, 0); });
     await act(async () => { jest.advanceTimersByTime(15_000); });
-    expect(vibrate).toHaveBeenCalledTimes(1);
+    expect(restAlerts.buzz).toHaveBeenCalledTimes(1);
     expect(rest.activeTimer).toBeNull();
-    expect(Notifications.dismissNotificationAsync).not.toHaveBeenCalled();
     expect(mockSettings.get('activeRestTimer')).toBe('');
   } finally {
     await act(async () => tree.unmount());
     tree = undefined as never;
-    vibrate.mockRestore();
     AppState.currentState = oldState;
     jest.useRealTimers();
   }

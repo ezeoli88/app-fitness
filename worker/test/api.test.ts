@@ -9,7 +9,6 @@ async function reset(): Promise<void> {
     DELETE FROM days;
     DELETE FROM routines;
     DELETE FROM settings;
-    DELETE FROM tombstones;
   `);
 }
 
@@ -43,19 +42,17 @@ describe('API', () => {
     expect(foreign.headers.get('access-control-allow-origin')).toBeNull();
   });
 
-  it('siembra una vez y rechaza una instantánea sobre datos', async () => {
+  it('siembra una vez y rechaza un modo desconocido', async () => {
     const first = await api('/api/bootstrap', { method: 'POST', body: JSON.stringify({ mode: 'seed' }) });
     expect(await first.json()).toEqual({ seeded: true });
     const second = await api('/api/bootstrap', { method: 'POST', body: JSON.stringify({ mode: 'seed' }) });
     expect(await second.json()).toEqual({ seeded: false });
-    const snapshot = await api('/api/bootstrap', {
-      method: 'POST',
-      body: JSON.stringify({ mode: 'snapshot', snapshot: { routines: [], days: [], exercises: [], sessions: [], sessionExercises: [], sessionSets: [] } }),
-    });
-    expect(snapshot.status).toBe(409);
+    const snapshot = await api('/api/bootstrap', { method: 'POST', body: JSON.stringify({ mode: 'snapshot' }) });
+    expect(snapshot.status).toBe(422);
     const home = await api('/api/home');
-    const body = await home.json() as { routine: { id: string } | null };
+    const body = await home.json() as { routine: { id: string } | null; days: unknown[] };
     expect(body.routine?.id).toBe('principiantes');
+    expect(body.days.length).toBeGreaterThan(0);
   });
 
   it('traduce un borrador inválido a 422 y no filtra errores internos', async () => {

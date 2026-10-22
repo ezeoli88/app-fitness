@@ -4,8 +4,7 @@ import { z } from 'zod';
 import type { SqlDriver } from '@/db/core/driver';
 import { createGymDb, type GymDb } from '@/db/gymDb';
 import { seedCatalog } from '@/db/seed';
-import { importSnapshot, type TrainingSnapshot } from '@/db/snapshot';
-import { createSqlSettings, isSyncSettingKey } from '@/db/settings';
+import { createSqlSettings, isServerSettingKey } from '@/db/settings';
 import { DomainError } from '@/domain/errors';
 import catalogJson from '@/data/routines.json';
 import type { RoutineJson } from '@/domain/types';
@@ -46,61 +45,6 @@ const setPatch = z.object({
   weightKg: z.number().nullable().optional(),
   actualReps: z.number().int().nullable().optional(),
 }).strict();
-
-const snapshotSchema: z.ZodType<TrainingSnapshot> = z.object({
-  routines: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    level: z.string(),
-    sort: z.number().int(),
-    archivedAt: z.string().nullable().optional(),
-  })),
-  days: z.array(z.object({
-    uid: z.string(),
-    routineId: z.string(),
-    title: z.string(),
-    sort: z.number().int(),
-    archivedAt: z.string().nullable().optional(),
-  })),
-  exercises: z.array(z.object({
-    uid: z.string(),
-    dayUid: z.string(),
-    name: z.string(),
-    sets: z.number().int(),
-    reps: z.number().int(),
-    sort: z.number().int(),
-    archivedAt: z.string().nullable().optional(),
-  })),
-  sessions: z.array(z.object({
-    uid: z.string(),
-    dayUid: z.string(),
-    startedAt: z.string(),
-    completedAt: z.string().nullable(),
-    status: z.enum(['open', 'completed', 'partial']),
-    routineId: z.string(),
-    routineTitle: z.string(),
-    dayTitle: z.string(),
-    lastUsedAt: z.string().nullable(),
-  })),
-  sessionExercises: z.array(z.object({
-    uid: z.string(),
-    sessionUid: z.string(),
-    sourceExerciseUid: z.string().nullable(),
-    name: z.string(),
-    sets: z.number().int(),
-    reps: z.number().int(),
-    sort: z.number().int(),
-  })),
-  sessionSets: z.array(z.object({
-    uid: z.string(),
-    sessionExerciseUid: z.string(),
-    setIndex: z.number().int(),
-    completed: z.boolean(),
-    weightKg: z.number().nullable(),
-    actualReps: z.number().int().nullable(),
-  })),
-  settings: z.array(z.object({ key: z.string(), value: z.string() })).optional(),
-});
 
 function positiveInt(value: string): number | null {
   const parsed = Number(value);
@@ -263,33 +207,24 @@ export function createApp() {
 
   app.get('/api/settings/:key', async (c) => {
     const key = c.req.param('key');
-    if (!isSyncSettingKey(key)) throw invalid();
+    if (!isServerSettingKey(key)) throw invalid();
     return c.json({ value: await createSqlSettings(c.get('driver')).get(key) });
   });
   app.put('/api/settings/:key', async (c) => {
     const key = c.req.param('key');
     const body = z.object({ value: z.string() }).safeParse(await readJson(c.req.raw));
-    if (!isSyncSettingKey(key) || !body.success) throw invalid();
+    if (!isServerSettingKey(key) || !body.success) throw invalid();
     await createSqlSettings(c.get('driver')).set(key, body.data.value);
     return c.json({ ok: true });
   });
 
   app.post('/api/bootstrap', async (c) => {
-    const body = z.object({
-      mode: z.enum(['seed', 'snapshot']),
-      snapshot: snapshotSchema.optional(),
-    }).safeParse(await readJson(c.req.raw));
+    const body = z.object({ mode: z.literal('seed') }).safeParse(await readJson(c.req.raw));
     if (!body.success) throw invalid();
     const driver = c.get('driver');
     const count = await driver.first<{ n: number }>('SELECT COUNT(*) AS n FROM routines');
-    const empty = (count?.n ?? 0) === 0;
-    if (body.data.mode === 'seed') {
-      if (!empty) return c.json({ seeded: false });
-      await seedCatalog(driver, catalog);
-      return c.json({ seeded: true });
-    }
-    if (!body.data.snapshot) throw invalid();
-    await importSnapshot(driver, body.data.snapshot);
+    if ((count?.n ?? 0) > 0) return c.json({ seeded: false });
+    await seedCatalog(driver, catalog);
     return c.json({ seeded: true });
   });
 

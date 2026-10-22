@@ -1,23 +1,26 @@
-import { Alert } from 'react-native';
-
 import type { ConfirmRequest } from '@/platform/confirmTypes';
 
-export function confirm(request: ConfirmRequest): void {
-  Alert.alert(
-    request.title,
-    request.message,
-    request.actions.map((action) => ({
-      text: action.text,
-      style: action.style,
-      onPress: action.onPress,
-    }))
-  );
-}
+let current: ConfirmRequest | null = null;
+let listener: ((request: ConfirmRequest | null) => void) | null = null;
 
-export function subscribeConfirm(_listener: (request: ConfirmRequest | null) => void): () => void {
-  return () => undefined;
+export function confirm(request: ConfirmRequest): void {
+  current = request;
+  listener?.(current);
 }
 
 export function dismissConfirm(): void {
-  // Alert.alert se cierra solo en Android.
+  current = null;
+  listener?.(null);
+}
+
+export function subscribeConfirm(next: (request: ConfirmRequest | null) => void): () => void {
+  listener = next;
+  if (current) next(current);
+  return () => {
+    if (listener === next) listener = null;
+  };
+}
+
+export function currentConfirm(): ConfirmRequest | null {
+  return current;
 }

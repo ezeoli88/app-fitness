@@ -1,5 +1,5 @@
-import type { BatchResult, SqlDriver, SqlValue, Stmt } from '@/db/core/driver';
-import { createUid, isUniqueConstraint } from '@/db/core/driver';
+import type { BatchResult, SqlDriver, Stmt } from '@/db/core/driver';
+import { isUniqueConstraint } from '@/db/core/driver';
 import { DomainError } from '@/domain/errors';
 import { pickActiveRoutine, validateRoutineDraft, type Routine } from '@/domain/routine';
 import type {
@@ -512,38 +512,53 @@ export function createGymDb(driver: SqlDriver): GymDb {
         });
       }
 
-      const dayUids = new Map<number, string>();
       for (const [dayIndex, day] of draft.days.entries()) {
         if (day.id !== null) continue;
-        const dayUid = createUid();
-        dayUids.set(dayIndex, dayUid);
+        const dayTitle = day.title.trim();
         planned.push({
           stmt: {
-            sql: 'INSERT INTO days (uid, routine_id, title, sort, archived_at) VALUES (?, ?, ?, ?, NULL)',
-            params: [dayUid, routineId, day.title.trim(), dayIndex],
+            sql: 'INSERT INTO days (routine_id, title, sort, archived_at) VALUES (?, ?, ?, NULL)',
+            params: [routineId, dayTitle, dayIndex],
           },
           error: 'No se pudo guardar la rutina.',
-          stillApplied: async () => Boolean(await driver.first('SELECT id FROM days WHERE uid = ?', dayUid)),
+          stillApplied: async () => Boolean(await driver.first(
+            'SELECT id FROM days WHERE routine_id = ? AND sort = ? AND title = ? AND archived_at IS NULL',
+            routineId,
+            dayIndex,
+            dayTitle
+          )),
         });
       }
       for (const [dayIndex, day] of draft.days.entries()) {
         for (const [exerciseIndex, exercise] of day.exercises.entries()) {
           if (exercise.id !== null) continue;
-          const exerciseUid = createUid();
-          const params: SqlValue[] = day.id === null
-            ? [exerciseUid, dayUids.get(dayIndex) ?? '', exercise.name.trim(), exercise.sets, exercise.reps, exerciseIndex]
-            : [exerciseUid, day.id, exercise.name.trim(), exercise.sets, exercise.reps, exerciseIndex];
+          const exerciseName = exercise.name.trim();
+          const onNewDay = day.id === null;
           planned.push({
             stmt: {
-              sql: day.id === null
-                ? `INSERT INTO exercises (uid, day_id, name, sets, reps, sort, archived_at)
-                   VALUES (?, (SELECT id FROM days WHERE uid = ?), ?, ?, ?, ?, NULL)`
-                : `INSERT INTO exercises (uid, day_id, name, sets, reps, sort, archived_at)
-                   VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-              params,
+              sql: onNewDay
+                ? `INSERT INTO exercises (day_id, name, sets, reps, sort, archived_at)
+                   SELECT id, ?, ?, ?, ?, NULL FROM days
+                   WHERE routine_id = ? AND sort = ? AND archived_at IS NULL`
+                : `INSERT INTO exercises (day_id, name, sets, reps, sort, archived_at)
+                   VALUES (?, ?, ?, ?, ?, NULL)`,
+              params: onNewDay
+                ? [exerciseName, exercise.sets, exercise.reps, exerciseIndex, routineId, dayIndex]
+                : [day.id, exerciseName, exercise.sets, exercise.reps, exerciseIndex],
             },
             error: 'No se pudo guardar la rutina.',
-            stillApplied: async () => Boolean(await driver.first('SELECT id FROM exercises WHERE uid = ?', exerciseUid)),
+            stillApplied: async () => Boolean(await driver.first(
+              onNewDay
+                ? `SELECT e.id FROM exercises e
+                   JOIN days d ON d.id = e.day_id
+                   WHERE d.routine_id = ? AND d.sort = ? AND d.archived_at IS NULL
+                     AND e.name = ? AND e.sets = ? AND e.reps = ? AND e.sort = ? AND e.archived_at IS NULL`
+                : `SELECT id FROM exercises
+                   WHERE day_id = ? AND name = ? AND sets = ? AND reps = ? AND sort = ? AND archived_at IS NULL`,
+              ...(onNewDay
+                ? [routineId, dayIndex, exerciseName, exercise.sets, exercise.reps, exerciseIndex]
+                : [day.id, exerciseName, exercise.sets, exercise.reps, exerciseIndex])
+            )),
           });
         }
       }
@@ -687,28 +702,28 @@ export function createGymDb(driver: SqlDriver): GymDb {
            WHERE day_id = ? AND archived_at IS NULL ORDER BY sort, id`,
           dayId
         );
-        const sessionUid = createUid();
         const stmts: Stmt[] = [{
           sql: `INSERT INTO sessions
-                  (uid, day_id, started_at, completed_at, completed_sets, status, routine_id, routine_title, day_title, last_used_at)
-                SELECT ?, ?, ?, NULL, '{}', 'open', ?, ?, ?, ?
+                  (day_id, started_at, completed_at, completed_sets, status, routine_id, routine_title, day_title, last_used_at)
+                SELECT ?, ?, NULL, '{}', 'open', ?, ?, ?, ?
                 WHERE NOT EXISTS (SELECT 1 FROM sessions WHERE day_id = ? AND status = 'open')`,
-          params: [sessionUid, dayId, now, day.routineId, day.routineTitle, day.title, now, dayId],
+          params: [dayId, now, day.routineId, day.routineTitle, day.title, now, dayId],
         }];
         for (const exercise of exercises) {
-          const exerciseUid = createUid();
           stmts.push({
             sql: `INSERT INTO session_exercises
-                    (uid, session_id, source_exercise_id, name, sets, reps, sort)
-                  SELECT ?, id, ?, ?, ?, ?, ?
-                  FROM sessions WHERE uid = ? AND status = 'open'`,
-            params: [exerciseUid, exercise.id, exercise.name, exercise.sets, exercise.reps, exercise.sort, sessionUid],
+                    (session_id, source_exercise_id, name, sets, reps, sort)
+                  SELECT id, ?, ?, ?, ?, ?
+                  FROM sessions WHERE day_id = ? AND status = 'open'`,
+            params: [exercise.id, exercise.name, exercise.sets, exercise.reps, exercise.sort, dayId],
           });
           for (let index = 0; index < exercise.sets; index++) {
             stmts.push({
-              sql: `INSERT INTO session_sets (uid, session_exercise_id, set_index, completed)
-                    SELECT ?, id, ?, 0 FROM session_exercises WHERE uid = ?`,
-              params: [createUid(), index, exerciseUid],
+              sql: `INSERT INTO session_sets (session_exercise_id, set_index, completed)
+                    SELECT id, ?, 0 FROM session_exercises
+                    WHERE session_id = (SELECT id FROM sessions WHERE day_id = ? AND status = 'open')
+                      AND source_exercise_id = ?`,
+              params: [index, dayId, exercise.id],
             });
           }
         }

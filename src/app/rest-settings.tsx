@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { WebAccount } from '@/components/WebAccount';
 import { useLayout } from '@/components/useLayout';
@@ -20,7 +20,6 @@ export default function RestSettingsScreen() {
   const { colors } = useTheme();
   const { maxWidth } = useLayout();
   const rest = useRestTimer();
-  const web = Platform.OS === 'web';
   const [custom, setCustom] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -101,27 +100,16 @@ export default function RestSettingsScreen() {
           </Pressable>
         </View>
 
-        {web ? (
-          <Pressable onPress={() => void rest.requestNotificationPermission()} accessibilityRole="button" style={[styles.apply, styles.enable, { backgroundColor: colors.chalk }]}>
-            <Text style={[styles.applyText, { color: colors.bg }]}>Activar avisos</Text>
-          </Pressable>
-        ) : null}
+        <Pressable onPress={() => void rest.requestNotificationPermission()} accessibilityRole="button" style={[styles.apply, styles.enable, { backgroundColor: colors.chalk }]}>
+          <Text style={[styles.applyText, { color: colors.bg }]}>Activar avisos</Text>
+        </Pressable>
         {rest.permissionMessage ? (
           <View style={[styles.permissionCard, { borderColor: colors.border }]}>
             <Text style={[styles.permission, { color: colors.muted }]}>{rest.permissionMessage}</Text>
-            {!web && rest.notificationsAllowed === false ? (
-              <Pressable onPress={() => void Linking.openSettings()} accessibilityRole="button">
-                <Text style={[styles.settingsLink, { color: colors.brass }]}>Abrir ajustes del dispositivo</Text>
-              </Pressable>
-            ) : null}
           </View>
         ) : (
           <Text style={[styles.note, styles.permissionHint, { color: colors.muted }]}>
-            {web
-              ? 'En el navegador el aviso suena en esta pestaña. Si la dejás en segundo plano puede atrasarse, y si cerrás el navegador no hay aviso.'
-              : rest.notificationsAllowed
-                ? 'Los avisos están habilitados para cuando cambiás de app o bloqueás la pantalla.'
-                : 'Al iniciar el primer descanso te pediremos permiso para enviarte avisos. Podés habilitarlos en los ajustes del dispositivo.'}
+            El aviso suena en esta pestaña. Si la dejás en segundo plano puede atrasarse, y si cerrás el navegador no hay aviso.
           </Text>
         )}
         <WebAccount />

@@ -24,7 +24,7 @@ npx wrangler d1 migrations apply rutina-db --remote --env=""
 npx wrangler d1 migrations apply rutina-db-preview --remote --env preview
 ```
 
-La primera migración crea el esquema. La segunda agrega `rev`, `sync_meta` y tombstones. No se editan migraciones ya aplicadas: el cambio siguiente es un archivo nuevo.
+`0001_init.sql` crea el esquema. No se editan migraciones ya aplicadas: el cambio siguiente es un archivo nuevo.
 
 ## 2. Access con código de un solo uso
 
@@ -36,7 +36,7 @@ En Zero Trust:
    - `rutina-preview.<subdominio>.workers.dev`
 3. Duración de sesión: 720 horas.
 4. Política Allow: un único email, el del dueño. No la escribas en el repo.
-5. Service Auth: un token `ci-smoke` para el chequeo del deploy. El de Android se crea recién en la fase de sync.
+5. Service Auth: un token `ci-smoke` para el chequeo del deploy.
 6. Copiá el AUD tag de la aplicación al valor `ACCESS_AUD` de producción y, si el preview tiene otra aplicación, al de `[env.preview]`. `ACCESS_TEAM_DOMAIN` es la URL del equipo, con `https://` y sin barra final.
 
 Secretos, por ambiente. Wrangler los pide por stdin y no quedan en el archivo:
@@ -88,6 +88,6 @@ npx wrangler deploy --env preview
 
 Comprobación: sin cookie, `/` y `/api/health` responden 302 hacia `*.cloudflareaccess.com`. Con el token de servicio, `/api/health` responde 200 y `/` devuelve el HTML. El script `scripts/access-smoke.mjs` hace esas dos pruebas.
 
-## 5. Qué queda afuera
+## 5. Datos
 
-Android sigue offline con su SQLite. No hay push ni pull de sync en esta fase. El esquema de D1 ya guarda `rev` y tombstones para esa fase, pero el Worker no expone esas rutas.
+La app es solo web. Los entrenamientos viven en D1. No hay cliente nativo ni sincronización. El respaldo semanal exporta esa base.

@@ -1,100 +1,124 @@
-import * as Notifications from 'expo-notifications';
-import { Platform, Vibration } from 'react-native';
-
 import type { RestAlerts, RestOpenData, RestPermission } from '@/platform/restAlertsTypes';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+type Scheduled = { id: string; sessionId: number; dayId: number; timer: ReturnType<typeof setTimeout> };
 
-async function ensureRestChannel(): Promise<void> {
-  if (Platform.OS !== 'android') return;
-  await Notifications.setNotificationChannelAsync('rest-timer', {
-    name: 'Descanso entre series',
-    importance: Notifications.AndroidImportance.HIGH,
-    enableVibrate: true,
-    vibrationPattern: [0, 250, 200, 250],
-  });
+const scheduled = new Map<string, Scheduled>();
+const listeners = new Set<(data: RestOpenData) => void>();
+let sequence = 0;
+let audio: AudioContext | null = null;
+let baseTitle = 'Rutina';
+
+function notify(data: RestOpenData): void {
+  for (const listener of listeners) listener(data);
 }
 
-function parseResponse(response: Notifications.NotificationResponse): RestOpenData | null {
-  if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return null;
-  const data = response.notification.request.content.data;
-  if (data?.kind !== 'rest-timer') return null;
-  const sessionId = Number(data.sessionId);
-  const dayId = Number(data.dayId);
-  if (!Number.isFinite(sessionId) || !Number.isFinite(dayId)) return null;
-  return { sessionId, dayId, id: response.notification.request.identifier };
+function unlockAudio(): void {
+  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) return;
+  if (!audio) audio = new Ctx();
+  if (audio.state === 'suspended') void audio.resume();
+}
+
+function showFallback(sessionId: number, dayId: number, id: string): void {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  const notification = new Notification('Descanso terminado', {
+    body: 'Ya podés continuar con tu entrenamiento.',
+    tag: id,
+    data: { sessionId, dayId, id },
+  });
+  notification.onclick = () => {
+    window.focus();
+    notify({ sessionId, dayId, id });
+    notification.close();
+  };
+}
+
+async function showNotification(sessionId: number, dayId: number, id: string): Promise<void> {
+  const registration = await navigator.serviceWorker?.getRegistration();
+  if (registration) {
+    await registration.showNotification('Descanso terminado', {
+      body: 'Ya podés continuar con tu entrenamiento.',
+      tag: id,
+      data: { sessionId, dayId, id },
+    });
+    return;
+  }
+  showFallback(sessionId, dayId, id);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pointerdown', unlockAudio);
+  navigator.serviceWorker?.addEventListener('message', (event: MessageEvent) => {
+    const data = event.data as { type?: string; sessionId?: number; dayId?: number; id?: string } | null;
+    if (data?.type !== 'rest-open' || data.sessionId === undefined || data.dayId === undefined || !data.id) return;
+    notify({ sessionId: Number(data.sessionId), dayId: Number(data.dayId), id: data.id });
+  });
+  void navigator.serviceWorker?.register('/sw.js').catch(() => undefined);
 }
 
 export const restAlerts: RestAlerts = {
   async permission(): Promise<RestPermission> {
-    await ensureRestChannel();
-    const permissions = await Notifications.getPermissionsAsync();
-    if (permissions.granted) return 'granted';
-    if (permissions.canAskAgain === false) return 'denied';
+    if (typeof Notification === 'undefined') return 'unsupported';
+    if (Notification.permission === 'granted') return 'granted';
+    if (Notification.permission === 'denied') return 'denied';
     return 'undetermined';
   },
   async requestPermission() {
-    await ensureRestChannel();
-    return Boolean((await Notifications.requestPermissionsAsync()).granted);
+    if (typeof Notification === 'undefined') return false;
+    unlockAudio();
+    const result = await Notification.requestPermission();
+    return result === 'granted';
   },
   async schedule(timer) {
-    const seconds = Math.max(1, Math.ceil((timer.fireAt - Date.now()) / 1000));
-    return Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'Descanso terminado',
-        body: 'Ya podés continuar con tu entrenamiento.',
-        data: { kind: 'rest-timer', sessionId: timer.sessionId, dayId: timer.dayId },
-        ...(Platform.OS === 'android' ? { channelId: 'rest-timer' } : {}),
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds,
-        ...(Platform.OS === 'android' ? { channelId: 'rest-timer' } : {}),
-      },
-    });
+    const id = `rest-${Date.now().toString(36)}-${++sequence}`;
+    const delay = Math.max(0, timer.fireAt - Date.now());
+    const handle = setTimeout(() => {
+      scheduled.delete(id);
+      // El pitido con la pestaña visible lo emite RestTimerContext.
+      void showNotification(timer.sessionId, timer.dayId, id);
+    }, delay);
+    scheduled.set(id, { id, sessionId: timer.sessionId, dayId: timer.dayId, timer: handle });
+    return id;
   },
   async cancel(id) {
     if (!id) return;
-    try {
-      await Notifications.cancelScheduledNotificationAsync(id);
-      await Notifications.dismissNotificationAsync(id);
-    } catch {
-      // El sistema puede haber entregado o descartado el aviso.
-    }
+    const current = scheduled.get(id);
+    if (!current) return;
+    clearTimeout(current.timer);
+    scheduled.delete(id);
   },
   async listScheduled() {
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    return scheduled.flatMap((item) => {
-      const data = item.content.data;
-      if (data?.kind !== 'rest-timer') return [];
-      const sessionId = Number(data.sessionId);
-      if (!Number.isFinite(sessionId)) return [];
-      return [{ id: item.identifier, sessionId }];
-    });
+    return [...scheduled.values()].map((item) => ({ id: item.id, sessionId: item.sessionId }));
   },
   onOpen(cb) {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const parsed = parseResponse(response);
-      if (parsed) cb(parsed);
-    });
-    void Notifications.getLastNotificationResponseAsync?.().then((response) => {
-      if (!response) return;
-      const parsed = parseResponse(response);
-      if (parsed) cb(parsed);
-    }).catch(() => undefined);
-    return () => subscription.remove();
+    listeners.add(cb);
+    return () => listeners.delete(cb);
   },
   buzz() {
-    Vibration.vibrate([0, 250, 200, 250]);
+    unlockAudio();
+    if (audio) {
+      const oscillator = audio.createOscillator();
+      const gain = audio.createGain();
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.05, audio.currentTime);
+      oscillator.connect(gain).connect(audio.destination);
+      oscillator.start();
+      oscillator.stop(audio.currentTime + 0.18);
+    }
+    navigator.vibrate?.([0, 250, 200, 250]);
   },
-  countdown() {
-    // El contador en el título es solo para la pestaña del navegador.
+  countdown(seconds) {
+    if (typeof document === 'undefined') return;
+    if (!baseTitle || document.title.includes('Descanso')) {
+      // Conservar el título de la pantalla cuando no hay cuenta regresiva.
+    }
+    if (seconds === null) {
+      document.title = baseTitle;
+      return;
+    }
+    if (!document.title.includes('Descanso')) baseTitle = document.title || 'Rutina';
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    document.title = `${minutes}:${String(rest).padStart(2, '0')} · Descanso · Rutina`;
   },
 };

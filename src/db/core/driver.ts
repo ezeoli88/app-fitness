@@ -26,13 +26,6 @@ export function isSelect(sql: string): boolean {
   return /^\s*select\b/i.test(sql);
 }
 
-export function createUid(): string {
-  const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  const randomUUID = cryptoObj?.randomUUID?.bind(cryptoObj);
-  if (randomUUID) return randomUUID();
-  return `uid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-}
-
 export function isUniqueConstraint(error: unknown): boolean {
   const message = errorText(error);
   return /UNIQUE constraint failed/i.test(message) || /SQLITE_CONSTRAINT/i.test(message);

@@ -7,7 +7,7 @@ const env: AccessEnv = {
   ACCESS_TEAM_DOMAIN: 'https://example.cloudflareaccess.com',
   ACCESS_AUD: 'aud-tag',
   OWNER_EMAIL: 'owner@example.com',
-  ACCESS_SERVICE_CLIENT_IDS: 'ci-smoke.access,android-sync.access',
+  ACCESS_SERVICE_CLIENT_IDS: 'ci-smoke.access',
 };
 
 function request(url: string, headers?: HeadersInit): Request {

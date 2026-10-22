@@ -10,18 +10,14 @@ import { useLayout } from '@/components/useLayout';
 import { DataProvider, useData } from '@/data/DataProvider';
 import { GymProvider, useGym } from '@/db/GymContext';
 import { RestTimerProvider, useRestTimer } from '@/db/RestTimerContext';
-import { hideSplash } from '@/platform/splash';
 import { restAlerts } from '@/platform/restAlerts';
 import { ThemeProvider, useTheme } from '@/ThemeContext';
 
-import '@/platform/splash';
-
 export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
-  useEffect(() => { hideSplash(); }, []);
   return (
     <View style={[styles.recovery, { backgroundColor: '#080d14' }]}>
       <Text style={[styles.recoveryTitle, { color: '#ffffff' }]}>No pudimos iniciar Rutina</Text>
-      <Text style={[styles.recoveryBody, { color: '#aab7c8' }]}>Tus datos no se borraron. Podés volver a intentar abrir la app.</Text>
+      <Text style={[styles.recoveryBody, { color: '#aab7c8' }]}>Podés volver a intentar. Lo que ya guardaste sigue en el servidor.</Text>
       <Pressable accessibilityRole="button" onPress={() => void retry()} style={[styles.retry, { backgroundColor: '#ffdf45' }]}>
         <Text style={styles.retryText}>Reintentar</Text>
       </Pressable>
@@ -97,7 +93,7 @@ function DatabaseRecovery({ onRetry }: { onRetry: () => void }) {
     <SafeAreaView style={[styles.recovery, { backgroundColor: colors.bg }]}>
       <Text style={[styles.recoveryTitle, { color: colors.text }]}>No pudimos abrir tus datos</Text>
       <Text style={[styles.recoveryBody, { color: colors.muted }]}>
-        La app no borró tus datos. Probá inicializarla otra vez.
+        Probá otra vez. Lo que ya guardaste sigue en el servidor.
       </Text>
       <Pressable onPress={onRetry} accessibilityRole="button" style={[styles.retry, { backgroundColor: colors.chalk }]}>
         <Text style={[styles.retryText, { color: colors.bg }]}>Reintentar</Text>
@@ -109,8 +105,6 @@ function DatabaseRecovery({ onRetry }: { onRetry: () => void }) {
 function ThemedShell() {
   const { theme, colors } = useTheme();
   const { databaseError, retry } = useData();
-
-  useEffect(() => { hideSplash(); }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>

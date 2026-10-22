@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { restAlerts } from '@/platform/restAlerts.web';
+import { restAlerts } from '@/platform/restAlerts';
 
 test('cuenta el descanso en el título y lo restaura', () => {
   document.title = 'Entrenar';

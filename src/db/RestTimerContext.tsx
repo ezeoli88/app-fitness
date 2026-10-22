@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, Platform } from 'react-native';
+import { AppState } from 'react-native';
 
 import { useData } from '@/data/DataProvider';
 import type { RestTimer } from '@/domain/types';
@@ -100,15 +100,11 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
           setPermissionMessage(null);
         } catch {
           setNotificationsAllowed(false);
-          setPermissionMessage(Platform.OS === 'web'
-            ? 'El aviso del navegador no está disponible. El contador sigue en esta pestaña.'
-            : 'El aviso en segundo plano no está disponible. El contador sigue funcionando mientras la app está abierta.');
+          setPermissionMessage('El aviso del navegador no está disponible. El contador sigue en esta pestaña.');
         }
       } else {
         setNotificationsAllowed(false);
-        setPermissionMessage(Platform.OS === 'web'
-          ? 'Activá los avisos del navegador para enterarte cuando termine el descanso. Con la pestaña en segundo plano pueden atrasarse, y si cerrás el navegador no hay aviso.'
-          : 'Permití las notificaciones para recibir el aviso con la app en segundo plano.');
+        setPermissionMessage('Activá los avisos del navegador para enterarte cuando termine el descanso. Con la pestaña en segundo plano pueden atrasarse, y si cerrás el navegador no hay aviso.');
       }
 
       const persisted = { ...next, notificationId };
@@ -236,7 +232,7 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
   const startRest = useCallback(
     (sessionId: number, dayId: number, exerciseId: number, setIndex: number) => {
       if (!enabledRef.current) return Promise.resolve();
-      if (Platform.OS === 'web' && !askedRef.current) {
+      if (!askedRef.current) {
         askedRef.current = true;
         pendingPermission.current = restAlerts.requestPermission();
         void settings.set(ASKED_KEY, 'true');

@@ -1,7 +1,7 @@
 import { usePreventRemove } from 'expo-router/build/react-navigation/core/usePreventRemove';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useLayout } from '@/components/useLayout';
 import { confirm } from '@/platform/confirm';
@@ -70,7 +70,7 @@ export default function RoutineEditorScreen() {
   });
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || !dirty || saving || typeof window === 'undefined') return;
+    if (!dirty || saving || typeof window === 'undefined') return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
