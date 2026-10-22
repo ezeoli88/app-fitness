@@ -26,6 +26,19 @@ export const setPatch = z.object({
   actualReps: z.number().int().nullable().optional(),
 }).strict();
 
+/** Tope holgado: una sesión real tiene unas decenas de series. */
+const MAX_FINISH_SETS = 500;
+
+/** `sets` es opcional para que un cliente viejo pueda seguir finalizando sin series. */
+export const finishBody = z.object({
+  completedAt: z.string().min(1),
+  sets: z.array(z.object({
+    exerciseId: z.number().int().positive(),
+    setIndex: z.number().int().nonnegative(),
+    patch: setPatch,
+  }).strict()).max(MAX_FINISH_SETS).optional(),
+});
+
 const MAX_HINT_IDS = 100;
 
 /** Lee `ids=1,2,3`; devuelve null si alguno no es un entero positivo. */

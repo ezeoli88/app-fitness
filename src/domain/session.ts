@@ -1,3 +1,33 @@
+import { formatOptionalReps, formatOptionalWeight, parseRepsInput, parseWeightInput } from '@/domain/series';
+import type { SessionDetails, SessionSetWrite } from '@/domain/types';
+
+export type SetDraft = { weight: string; reps: string };
+
+/**
+ * Todas las series de la sesión con su marca, peso y repeticiones, para guardarlas junto con el cierre.
+ * Lanza el error de validación si algún borrador no es un número válido.
+ */
+export function finishSetWrites(
+  session: SessionDetails,
+  draftFor: (exerciseId: number, setIndex: number) => SetDraft | undefined
+): SessionSetWrite[] {
+  return session.exercises.flatMap((exercise) => exercise.series.map((series) => {
+    const draft = draftFor(exercise.sourceExerciseId, series.setIndex) ?? {
+      weight: formatOptionalWeight(series.weightKg),
+      reps: formatOptionalReps(series.actualReps),
+    };
+    return {
+      exerciseId: exercise.sourceExerciseId,
+      setIndex: series.setIndex,
+      patch: {
+        completed: series.completed,
+        weightKg: parseWeightInput(draft.weight),
+        actualReps: parseRepsInput(draft.reps),
+      },
+    };
+  }));
+}
+
 export function emptyMarks(setCount: number): boolean[] {
   return Array.from({ length: setCount }, () => false);
 }

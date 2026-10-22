@@ -48,6 +48,11 @@ export type SessionSet = {
   actualReps: number | null;
 };
 
+export type SessionSetPatch = Partial<Pick<SessionSet, 'completed' | 'weightKg' | 'actualReps'>>;
+
+/** Una serie identificada por el ejercicio de origen, con la misma forma que el PATCH de series. */
+export type SessionSetWrite = { exerciseId: number; setIndex: number; patch: SessionSetPatch };
+
 export type Session = {
   id: number;
   dayId: number;

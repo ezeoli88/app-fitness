@@ -6,9 +6,9 @@ import { gym } from '@/api/client';
 import { SetRecord } from '@/components/SetRecord';
 import { UndoToast } from '@/components/UndoToast';
 import { weightPrefills } from '@/domain/prefill';
-import { countCompletedSets } from '@/domain/session';
+import { countCompletedSets, finishSetWrites } from '@/domain/session';
 import { formatOptionalReps, formatOptionalWeight, parseRepsInput, parseWeightInput } from '@/domain/series';
-import type { SessionDetails, SessionSet } from '@/domain/types';
+import type { SessionDetails, SessionSet, SessionSetWrite } from '@/domain/types';
 import { refreshTraining } from '@/query';
 import { useRestTimer } from '@/rest/RestTimer';
 import { confirm } from '@/ui/confirm';
@@ -60,6 +60,8 @@ function SessionPage() {
   const draftsRef = useRef<Record<FieldKey, FieldDraft>>({} as Record<FieldKey, FieldDraft>);
   const [toast, setToast] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  const finishingRef = useRef(false);
   const pendingWrites = useRef<{ current: Promise<unknown> }>({ current: Promise.resolve() });
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -156,41 +158,21 @@ function SessionPage() {
     }
   };
 
-  const flushDrafts = async (): Promise<boolean> => {
-    if (!session) return false;
+  /** Lee los borradores de todas las series. Si alguno no es válido avisa y devuelve null. */
+  const readFinishSets = (current: SessionDetails): SessionSetWrite[] | null => {
     try {
-      const changes: { exerciseId: number; index: number; weightKg: number | null; actualReps: number | null }[] = [];
-      for (const exercise of session.exercises) {
-        for (const series of exercise.series) {
-          const draft = draftsRef.current[key(exercise.sourceExerciseId, series.setIndex)] ?? { weight: '', reps: '' };
-          changes.push({
-            exerciseId: exercise.sourceExerciseId,
-            index: series.setIndex,
-            weightKg: parseWeightInput(draft.weight),
-            actualReps: parseRepsInput(draft.reps),
-          });
-        }
-      }
-      await queueOperation(pendingWrites.current, async () => {
-        for (const change of changes) {
-          await gym.updateSessionSet(session.id, change.exerciseId, change.index, {
-            weightKg: change.weightKg,
-            actualReps: change.actualReps,
-          });
-        }
-      });
-      return true;
+      return finishSetWrites(current, (exerciseId, setIndex) => draftsRef.current[key(exerciseId, setIndex)]);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Revisá los datos de las series.';
       setError(message);
       confirm({ title: 'Revisá los datos', message, actions: [{ text: 'Entendido' }] });
-      return false;
+      return null;
     }
   };
 
   const onToggle = (exerciseId: number, setIndex: number) => {
     const current = sessionRef.current;
-    if (!current || current.status !== 'open' || toast) return;
+    if (!current || current.status !== 'open' || toast || finishingRef.current) return;
     const exercise = current.exercises.find((item) => item.sourceExerciseId === exerciseId);
     const series = exercise?.series.find((item) => item.setIndex === setIndex);
     if (!exercise || !series) return;
@@ -246,7 +228,7 @@ function SessionPage() {
   };
 
   const copyPrevious = async (exerciseId: number) => {
-    if (!session || session.status !== 'open') return;
+    if (!session || session.status !== 'open' || finishingRef.current) return;
     const previousSets = previous[exerciseId] ?? [];
     const exercise = session.exercises.find((item) => item.sourceExerciseId === exerciseId);
     if (!exercise || previousSets.length === 0) return;
@@ -294,16 +276,40 @@ function SessionPage() {
     });
   };
 
-  const finish = async () => {
-    if (!session || session.status !== 'open' || !(await flushDrafts())) return;
-    const fresh = await gym.getSessionDetails(session.id);
-    if (!fresh) {
-      setError('No encontramos la sesión abierta.');
-      return;
+  // Un solo POST guarda todas las series y cierra la sesión.
+  const saveAndFinish = async () => {
+    const current = sessionRef.current;
+    if (!current || current.status !== 'open' || finishingRef.current) return;
+    const sets = readFinishSets(current);
+    if (!sets) return;
+    finishingRef.current = true;
+    setFinishing(true);
+    setError(null);
+    // El descanso se corta en pantalla al instante; no se espera porque puede quedar detrás del pedido de avisos.
+    void rest.skipRest(current.id).catch(() => undefined);
+    try {
+      const completedAt = new Date().toISOString();
+      const status = await queueOperation(pendingWrites.current, () => gym.finishSession(current.id, completedAt, sets));
+      const finished: SessionDetails = { ...(sessionRef.current ?? current), status, completedAt };
+      sessionRef.current = finished;
+      setSession(finished);
+      setToast(true);
+      timeoutRef.current = setTimeout(() => { void navigate({ to: '/', replace: true }); }, UNDO_MS);
+      void refreshTraining().catch(() => undefined);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'No se pudo finalizar la sesión.';
+      setError(message);
+      confirm({ title: 'No se pudo finalizar', message, actions: [{ text: 'Entendido' }] });
+    } finally {
+      finishingRef.current = false;
+      setFinishing(false);
     }
-    setSession(fresh);
-    sessionRef.current = fresh;
-    const completed = countCompletedSets(fresh.completedSets);
+  };
+
+  const finish = () => {
+    const current = sessionRef.current;
+    if (!current || current.status !== 'open' || finishingRef.current || !readFinishSets(current)) return;
+    const completed = countCompletedSets(current.completedSets);
     if (completed === 0) {
       confirm({
         title: 'Entrenamiento vacío',
@@ -315,24 +321,8 @@ function SessionPage() {
       });
       return;
     }
-    const total = sumTargetSets(fresh);
-    const confirmFinish = () => {
-      void (async () => {
-        try {
-          await rest.skipRest(session.id);
-          if (!(await flushDrafts())) return;
-          const status = await queueOperation(pendingWrites.current, () => gym.finishSession(session.id, new Date().toISOString()));
-          const finished = sessionRef.current ? { ...sessionRef.current, status, completedAt: new Date().toISOString() } : null;
-          sessionRef.current = finished;
-          setSession(finished);
-          setToast(true);
-          await refreshTraining();
-          timeoutRef.current = setTimeout(() => { void navigate({ to: '/', replace: true }); }, UNDO_MS);
-        } catch (reason) {
-          setError(reason instanceof Error ? reason.message : 'No se pudo finalizar la sesión.');
-        }
-      })();
-    };
+    const total = sumTargetSets(current);
+    const confirmFinish = () => { void saveAndFinish(); };
     if (completed < total) {
       confirm({
         title: 'Finalizar entrenamiento',
@@ -378,8 +368,11 @@ function SessionPage() {
 
   const actions = session?.status === 'open' ? (
     <div className="session-actions">
-      <button type="button" className="finish" onClick={() => void finish().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'No se pudo finalizar la sesión.'))}>Finalizar entrenamiento</button>
-      {completedSets === 0 ? <button type="button" className="discard" onClick={discardEmpty}>Descartar sesión vacía</button> : null}
+      <button type="button" className="finish" onClick={finish} disabled={finishing} aria-busy={finishing}>
+        {finishing ? 'Guardando…' : 'Finalizar entrenamiento'}
+      </button>
+      {finishing ? <p className="note" role="status">Guardando el entrenamiento…</p> : null}
+      {completedSets === 0 ? <button type="button" className="discard" onClick={discardEmpty} disabled={finishing}>Descartar sesión vacía</button> : null}
     </div>
   ) : null;
 
@@ -430,7 +423,7 @@ function SessionPage() {
                     result={series}
                     weightText={draft.weight}
                     repsText={draft.reps}
-                    editable={session.status === 'open'}
+                    editable={session.status === 'open' && !finishing}
                     onWeightChange={(value) => updateText(exercise.sourceExerciseId, series.setIndex, 'weight', value)}
                     onRepsChange={(value) => updateText(exercise.sourceExerciseId, series.setIndex, 'reps', value)}
                     onWeightCommit={() => void commitField(exercise.sourceExerciseId, series.setIndex, 'weight')}

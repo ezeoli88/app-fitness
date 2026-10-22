@@ -11,7 +11,7 @@ import type { RoutineJson } from '@/domain/types';
 
 import { allowedDevOrigin, authenticate, devBypassEnabled, devCorsHeaders, type AccessEnv, type Identity } from './access';
 import { createD1Driver } from './d1Driver';
-import { parseExerciseIds, routineDraft, setPatch } from './schemas';
+import { finishBody, parseExerciseIds, routineDraft, setPatch } from './schemas';
 
 const catalog = catalogJson as RoutineJson[];
 
@@ -140,9 +140,9 @@ export function createApp() {
   });
   app.post('/api/sessions/:id/finish', async (c) => {
     const id = positiveInt(c.req.param('id'));
-    const body = z.object({ completedAt: z.string().min(1) }).safeParse(await readJson(c.req.raw));
+    const body = finishBody.safeParse(await readJson(c.req.raw));
     if (!id || !body.success) throw invalid();
-    return c.json({ status: await c.get('gym').finishSession(id, body.data.completedAt) });
+    return c.json({ status: await c.get('gym').finishSession(id, body.data.completedAt, body.data.sets) });
   });
   app.post('/api/sessions/:id/reopen', async (c) => {
     const id = positiveInt(c.req.param('id'));

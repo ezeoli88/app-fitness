@@ -8,7 +8,9 @@ import {
   totalSets,
   countCompletedExercises,
   findClosingToggle,
+  finishSetWrites,
 } from './session';
+import type { SessionDetails } from './types';
 
 const pecs = [
   { id: 10, sets: 4 },
@@ -86,4 +88,32 @@ test('findClosingToggle is null when the day is still open', () => {
     setCount: 4,
   });
   expect(findClosingToggle({ exercises: pecs, before, after })).toBeNull();
+});
+
+function sevenByFour(): SessionDetails {
+  return {
+    id: 1, dayId: 1, startedAt: '2026-10-22T09:00:00.000Z', completedAt: null, completedSets: {},
+    status: 'open', routineId: 'r', routineTitle: 'R', dayTitle: 'D',
+    exercises: Array.from({ length: 7 }, (_, exerciseIndex) => ({
+      id: 100 + exerciseIndex, sessionId: 1, sourceExerciseId: 10 + exerciseIndex,
+      name: `E${exerciseIndex}`, sets: 4, reps: 8, sort: exerciseIndex,
+      series: Array.from({ length: 4 }, (_, setIndex) => ({
+        id: exerciseIndex * 4 + setIndex + 1, sessionExerciseId: 100 + exerciseIndex, setIndex,
+        completed: setIndex < 2, weightKg: 40, actualReps: null,
+      })),
+    })),
+  };
+}
+
+test('finishSetWrites sends every set with its mark and parsed drafts', () => {
+  const sets = finishSetWrites(sevenByFour(), (exerciseId, setIndex) =>
+    exerciseId === 10 && setIndex === 1 ? { weight: '42,5', reps: '6' } : undefined);
+  expect(sets).toHaveLength(28);
+  expect(sets[0]).toEqual({ exerciseId: 10, setIndex: 0, patch: { completed: true, weightKg: 40, actualReps: null } });
+  expect(sets[1]).toEqual({ exerciseId: 10, setIndex: 1, patch: { completed: true, weightKg: 42.5, actualReps: 6 } });
+  expect(sets[27]).toEqual({ exerciseId: 16, setIndex: 3, patch: { completed: false, weightKg: 40, actualReps: null } });
+});
+
+test('finishSetWrites rejects an invalid draft before sending anything', () => {
+  expect(() => finishSetWrites(sevenByFour(), () => ({ weight: '12,', reps: '' }))).toThrow();
 });

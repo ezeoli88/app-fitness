@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseExerciseIds, routineDraft } from './schemas';
+import { finishBody, parseExerciseIds, routineDraft } from './schemas';
 
 function draft(exercise: Record<string, unknown>) {
   return {
@@ -25,6 +25,29 @@ describe('routineDraft', () => {
     expect(routineDraft.safeParse(draft({ targetWeightKg: -1 })).success).toBe(false);
     expect(routineDraft.safeParse(draft({ targetWeightKg: '40' })).success).toBe(false);
     expect(routineDraft.safeParse(draft({ targetWeightKg: Number.POSITIVE_INFINITY })).success).toBe(false);
+  });
+});
+
+describe('finishBody', () => {
+  const completedAt = '2026-10-22T10:00:00.000Z';
+  const set = (patch: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    ({ exerciseId: 3, setIndex: 0, patch, ...extra });
+
+  it('acepta el cierre sin series y con series completas o parciales', () => {
+    expect(finishBody.safeParse({ completedAt }).success).toBe(true);
+    expect(finishBody.safeParse({ completedAt, sets: [] }).success).toBe(true);
+    expect(finishBody.safeParse({ completedAt, sets: [set({ completed: true, weightKg: 42.5, actualReps: 8 }), set({ weightKg: null })] }).success).toBe(true);
+  });
+
+  it('rechaza series mal formadas o demasiadas', () => {
+    expect(finishBody.safeParse({ completedAt: '' }).success).toBe(false);
+    expect(finishBody.safeParse({ completedAt, sets: {} }).success).toBe(false);
+    expect(finishBody.safeParse({ completedAt, sets: [set({ completed: 1 })] }).success).toBe(false);
+    expect(finishBody.safeParse({ completedAt, sets: [set({ actualReps: 2.5 })] }).success).toBe(false);
+    expect(finishBody.safeParse({ completedAt, sets: [set({ other: true })] }).success).toBe(false);
+    expect(finishBody.safeParse({ completedAt, sets: [set({}, { setIndex: -1 })] }).success).toBe(false);
+    expect(finishBody.safeParse({ completedAt, sets: [set({}, { sessionId: 9 })] }).success).toBe(false);
+    expect(finishBody.safeParse({ completedAt, sets: Array.from({ length: 501 }, () => set({ completed: true })) }).success).toBe(false);
   });
 });
 

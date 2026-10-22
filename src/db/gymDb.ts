@@ -1,4 +1,4 @@
-import type { BatchResult, SqlDriver, Stmt } from '@/db/core/driver';
+import type { BatchResult, SqlDriver, SqlValue, Stmt } from '@/db/core/driver';
 import { isUniqueConstraint } from '@/db/core/driver';
 import { DomainError } from '@/domain/errors';
 import { pickActiveRoutine, validateRoutineDraft, type Routine } from '@/domain/routine';
@@ -11,6 +11,8 @@ import type {
   SessionDetails,
   SessionExercise,
   SessionSet,
+  SessionSetPatch,
+  SessionSetWrite,
   SessionStatus,
   WeightHint,
 } from '@/domain/types';
@@ -174,9 +176,10 @@ export type GymDb = {
     sessionId: number,
     exerciseId: number,
     setIndex: number,
-    patch: Partial<Pick<SessionSet, 'completed' | 'weightKg' | 'actualReps'>>
+    patch: SessionSetPatch
   ): Promise<void>;
-  finishSession(sessionId: number, completedAtIso: string): Promise<SessionStatus>;
+  /** Escribe `sets` y cierra la sesión en un único batch. Si una serie es inválida no se escribe nada. */
+  finishSession(sessionId: number, completedAtIso: string, sets?: SessionSetWrite[]): Promise<SessionStatus>;
   reopenSession(sessionId: number): Promise<void>;
   discardEmptySession(sessionId: number): Promise<void>;
   previousExerciseSets(routineId: string, exerciseId: number): Promise<SessionSet[]>;
@@ -817,34 +820,43 @@ export function createGymDb(driver: SqlDriver): GymDb {
       });
     },
 
-    async finishSession(sessionId, completedAtIso) {
+    async finishSession(sessionId, completedAtIso, sets = []) {
+      for (const { patch } of sets) {
+        if (patch.weightKg !== undefined) assertWeight(patch.weightKg);
+        if (patch.actualReps !== undefined) assertReps(patch.actualReps);
+      }
       return driver.exclusive(async () => {
-        const preview = await readProgress(driver, sessionId);
-        if (!preview || preview.completed === 0) {
+        const stmts = sets.length > 0 ? await planSetWrites(driver, sessionId, sets) : [];
+        const doneSets = `(
+          SELECT COALESCE(SUM(ss.completed), 0)
+          FROM session_exercises se JOIN session_sets ss ON ss.session_exercise_id = se.id
+          WHERE se.session_id = sessions.id
+        )`;
+        const totalSets = `(
+          SELECT COUNT(*)
+          FROM session_exercises se JOIN session_sets ss ON ss.session_exercise_id = se.id
+          WHERE se.session_id = sessions.id
+        )`;
+        // El estado se calcula después de las series del mismo batch.
+        stmts.push(
+          {
+            sql: `UPDATE sessions
+                  SET status = CASE WHEN ${doneSets} = ${totalSets} THEN 'completed' ELSE 'partial' END,
+                      completed_at = ?
+                  WHERE id = ? AND status = 'open' AND ${doneSets} > 0`,
+            params: [completedAtIso, sessionId],
+          },
+          { sql: 'SELECT status FROM sessions WHERE id = ?', params: [sessionId] },
+        );
+        const results = await driver.batch(stmts);
+        const finished = results[results.length - 2];
+        const status = (results[results.length - 1].rows[0] as { status: SessionStatus } | undefined)?.status;
+        if (finished.changes > 0 && status) return status;
+        const again = await readProgress(driver, sessionId);
+        if (!again || again.completed === 0) {
           throw new DomainError('Marcá al menos una serie antes de finalizar.', 422);
         }
-        if (preview.status !== 'open') throw new DomainError('La sesión ya estaba finalizada.');
-        const status: SessionStatus = preview.completed === preview.total ? 'completed' : 'partial';
-        const result = await driver.run(
-          `UPDATE sessions SET status = ?, completed_at = ?
-           WHERE id = ? AND status = 'open'
-             AND (
-               SELECT COALESCE(SUM(ss.completed), 0)
-               FROM session_exercises se JOIN session_sets ss ON ss.session_exercise_id = se.id
-               WHERE se.session_id = sessions.id
-             ) > 0`,
-          status,
-          completedAtIso,
-          sessionId
-        );
-        if (result.changes === 0) {
-          const again = await readProgress(driver, sessionId);
-          if (!again || again.completed === 0) {
-            throw new DomainError('Marcá al menos una serie antes de finalizar.', 422);
-          }
-          throw new DomainError('La sesión ya estaba finalizada.');
-        }
-        return status;
+        throw new DomainError('La sesión ya estaba finalizada.');
       });
     },
 
@@ -1121,16 +1133,79 @@ export function createGymDb(driver: SqlDriver): GymDb {
 }
 
 async function readProgress(driver: SqlDriver, sessionId: number): Promise<{ status: string; total: number; completed: number } | null> {
-  const session = await driver.first<{ status: string }>(
-    'SELECT status FROM sessions WHERE id = ?',
+  const row = await driver.first<{ status: string; total: number; completed: number }>(
+    `SELECT s.status, COUNT(ss.id) AS total, COALESCE(SUM(ss.completed), 0) AS completed
+     FROM sessions s
+     LEFT JOIN session_exercises se ON se.session_id = s.id
+     LEFT JOIN session_sets ss ON ss.session_exercise_id = se.id
+     WHERE s.id = ?
+     GROUP BY s.id`,
     sessionId
   );
-  if (!session) return null;
-  const counts = await driver.first<{ total: number; completed: number }>(
-    `SELECT COUNT(*) AS total, COALESCE(SUM(ss.completed), 0) AS completed
-     FROM session_exercises se JOIN session_sets ss ON ss.session_exercise_id = se.id
-     WHERE se.session_id = ?`,
+  if (!row) return null;
+  return { status: row.status, total: Number(row.total), completed: Number(row.completed) };
+}
+
+/**
+ * Valida las series contra una sola lectura y arma un UPDATE por serie para el batch de cierre.
+ * Rechaza antes de escribir si alguna serie no existe o si no quedaría ninguna realizada.
+ */
+async function planSetWrites(driver: SqlDriver, sessionId: number, sets: SessionSetWrite[]): Promise<Stmt[]> {
+  const rows = await driver.all<{
+    status: string;
+    sessionExerciseId: number | null;
+    sourceExerciseId: number | null;
+    sets: number | null;
+    setIndex: number | null;
+    completed: number | null;
+  }>(
+    `SELECT s.status, se.id AS sessionExerciseId, se.source_exercise_id AS sourceExerciseId,
+            se.sets, ss.set_index AS setIndex, ss.completed
+     FROM sessions s
+     LEFT JOIN session_exercises se ON se.session_id = s.id
+     LEFT JOIN session_sets ss ON ss.session_exercise_id = se.id
+     WHERE s.id = ?`,
     sessionId
   );
-  return { status: session.status, total: Number(counts?.total ?? 0), completed: Number(counts?.completed ?? 0) };
+  if (rows.length === 0) throw new DomainError('Marcá al menos una serie antes de finalizar.', 422);
+  if (rows[0].status !== 'open') throw new DomainError('La sesión ya estaba finalizada.');
+  const known = new Map<string, { sessionExerciseId: number; completed: boolean }>();
+  for (const row of rows) {
+    if (row.sessionExerciseId === null || row.setIndex === null || row.setIndex >= (row.sets ?? 0)) continue;
+    known.set(`${row.sourceExerciseId}:${row.setIndex}`, {
+      sessionExerciseId: row.sessionExerciseId,
+      completed: Boolean(row.completed),
+    });
+  }
+  const stmts: Stmt[] = [];
+  for (const { exerciseId, setIndex, patch } of sets) {
+    const target = known.get(`${exerciseId}:${setIndex}`);
+    if (!target) throw new DomainError('Esa serie ya no está disponible.');
+    const assignments: string[] = [];
+    const params: SqlValue[] = [];
+    if (patch.completed !== undefined) {
+      target.completed = patch.completed;
+      assignments.push('completed = ?');
+      params.push(patch.completed ? 1 : 0);
+    }
+    if (patch.weightKg !== undefined) {
+      assignments.push('weight_kg = ?');
+      params.push(patch.weightKg);
+    }
+    if (patch.actualReps !== undefined) {
+      assignments.push('actual_reps = ?');
+      params.push(patch.actualReps);
+    }
+    if (assignments.length === 0) continue;
+    stmts.push({
+      sql: `UPDATE session_sets SET ${assignments.join(', ')}
+            WHERE session_exercise_id = ? AND set_index = ?
+              AND EXISTS (SELECT 1 FROM sessions WHERE id = ? AND status = 'open')`,
+      params: [...params, target.sessionExerciseId, setIndex, sessionId],
+    });
+  }
+  if (![...known.values()].some((set) => set.completed)) {
+    throw new DomainError('Marcá al menos una serie antes de finalizar.', 422);
+  }
+  return stmts;
 }
