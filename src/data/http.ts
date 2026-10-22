@@ -5,7 +5,7 @@ import { DomainError } from '@/domain/errors';
 const enqueue = createWriteQueue();
 
 export function apiBase(): string {
-  const configured = process.env.EXPO_PUBLIC_API_URL;
+  const configured = import.meta.env.VITE_API_URL;
   return (configured && configured.length > 0 ? configured : '/api').replace(/\/$/, '');
 }
 

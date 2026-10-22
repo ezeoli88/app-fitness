@@ -1,7 +1,4 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-
 import type { SessionSet } from '@/domain/types';
-import { useTheme } from '@/ThemeContext';
 
 type SetRecordProps = {
   index: number;
@@ -30,105 +27,47 @@ export function SetRecord({
   onRepsCommit,
   onToggle,
 }: SetRecordProps) {
-  const { colors } = useTheme();
-
   return (
-    <View style={[styles.row, { borderBottomColor: colors.border }]}>
+    <div className="set-row">
       {onToggle ? (
-        <Pressable
-          onPress={onToggle}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: result.completed }}
-          accessibilityLabel={`Serie ${index + 1}`}
-          style={[
-            styles.check,
-            {
-              backgroundColor: result.completed ? colors.chalk : 'transparent',
-              borderColor: result.completed ? colors.chalk : colors.border,
-            },
-          ]}>
-          <Text style={[styles.number, { color: result.completed ? colors.bg : colors.text }]}>
-            {result.completed ? '✓' : index + 1}
-          </Text>
-        </Pressable>
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={result.completed}
+          aria-label={`Serie ${index + 1}`}
+          className={result.completed ? 'check on' : 'check'}
+          onClick={onToggle}>
+          {result.completed ? '✓' : index + 1}
+        </button>
       ) : (
-        <View accessible accessibilityLabel={`Serie ${index + 1}: ${result.completed ? 'Realizada' : 'Pendiente'}`} style={[styles.check, styles.staticCheck, { borderColor: colors.border }]}>
-          <Text style={[styles.number, { color: colors.muted }]}>{result.completed ? '✓' : index + 1}</Text>
-        </View>
+        <span className="check check-static" aria-label={`Serie ${index + 1}: ${result.completed ? 'Realizada' : 'Pendiente'}`}>
+          {result.completed ? '✓' : index + 1}
+        </span>
       )}
-      <TextInput
-        editable={editable}
-        value={weightText}
-        onChangeText={onWeightChange}
-        onBlur={onWeightCommit}
-        placeholder={onToggle ? 'kg' : 'Sin dato'}
-        placeholderTextColor={colors.muted}
-        keyboardType="decimal-pad"
+      <input
+        className="set-input"
+        aria-label={`Peso de la serie ${index + 1}, en kilogramos`}
         inputMode="decimal"
-        returnKeyType="done"
-        accessibilityLabel={`Peso de la serie ${index + 1}, en kilogramos`}
-        style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
+        disabled={!editable}
+        value={weightText}
+        placeholder={onToggle ? 'kg' : 'Sin dato'}
+        onChange={(event) => onWeightChange(event.target.value)}
+        onBlur={onWeightCommit}
       />
-      <Text style={[styles.separator, { color: colors.muted }]}>×</Text>
-      <TextInput
-        editable={editable}
-        value={repsText}
-        onChangeText={onRepsChange}
-        onBlur={onRepsCommit}
-        placeholder={onToggle ? 'reps' : 'Sin dato'}
-        placeholderTextColor={colors.muted}
-        keyboardType="number-pad"
+      <span className="set-sep">×</span>
+      <input
+        className="set-input"
+        aria-label={`Repeticiones realizadas en la serie ${index + 1}`}
         inputMode="numeric"
-        returnKeyType="done"
-        accessibilityLabel={`Repeticiones realizadas en la serie ${index + 1}`}
-        style={[styles.input, styles.repsInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
+        disabled={!editable}
+        value={repsText}
+        placeholder={onToggle ? 'reps' : 'Sin dato'}
+        onChange={(event) => onRepsChange(event.target.value)}
+        onBlur={onRepsCommit}
       />
-      <Text accessibilityLabel={`Objetivo: ${targetReps > 0 ? `${targetReps} repeticiones` : 'Sin dato'}`} style={[styles.target, { color: colors.muted }]}>/{targetReps > 0 ? targetReps : '?'}</Text>
-    </View>
+      <span className="set-target" aria-label={`Objetivo: ${targetReps > 0 ? `${targetReps} repeticiones` : 'Sin dato'}`}>
+        /{targetReps > 0 ? targetReps : '?'}
+      </span>
+    </div>
   );
 }
-
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  check: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  staticCheck: {
-    borderWidth: 1,
-  },
-  number: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  input: {
-    minWidth: 65,
-    flex: 1,
-    height: 40,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 9,
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  repsInput: {
-    minWidth: 61,
-  },
-  separator: {
-    fontSize: 16,
-  },
-  target: {
-    minWidth: 27,
-    fontSize: 13,
-  },
-});

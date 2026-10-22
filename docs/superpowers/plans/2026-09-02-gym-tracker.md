@@ -1,6 +1,6 @@
 # Rutina — Implementation Plan
 
-> Este plan es de septiembre de 2026 y describe la app Android con SQLite local. La app actual es solo web: la fuente de datos es el Worker y D1. No lo uses como guía de implementación.
+> Este plan es de septiembre de 2026 y describe la app Android con SQLite local. La app actual es solo web: Vite + React + TanStack, con datos en el Worker y D1. No lo uses como guía de implementación.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

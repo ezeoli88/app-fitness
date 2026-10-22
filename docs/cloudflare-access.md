@@ -2,7 +2,7 @@
 
 Esta guía es para el dueño de la app. El repositorio no crea recursos reales ni guarda el email, el token ni el AUD definitivo.
 
-Hay un solo Worker, `rutina`. Los archivos de `expo export -p web` salen de Static Assets. Solo `/api/*` entra a Hono (`run_worker_first`). No se usa Cloudflare Pages.
+Hay un solo Worker, `rutina`. El build de Vite (`dist/`) sale de Static Assets. Solo `/api/*` entra a Hono (`run_worker_first`). No se usa Cloudflare Pages.
 
 ## 1. Dos bases D1
 
@@ -63,7 +63,7 @@ En el repositorio:
 - `CF_ACCESS_CLIENT_ID` y `CF_ACCESS_CLIENT_SECRET`: el token `ci-smoke`.
 - Variables `PRODUCTION_APP_URL` y `PREVIEW_APP_URL`: las URLs `https://` de cada hostname, sin barra final.
 
-El workflow `deploy` no corre hasta que existan las variables `PREVIEW_APP_URL` y `PRODUCTION_APP_URL`. Cuando están, migra, exporta y publica. Si el chequeo de Access falla en `main`, ejecuta `wrangler rollback`.
+El workflow `deploy` no corre hasta que existan las variables `PREVIEW_APP_URL` y `PRODUCTION_APP_URL`. Cuando están, migra, compila el front con Vite y publica. Si el chequeo de Access falla en `main`, ejecuta `wrangler rollback`.
 
 ## 4. Primer deploy manual
 
@@ -71,7 +71,7 @@ Con `database_id`, AUD y secretos ya cargados:
 
 ```sh
 npm ci
-npm run export:web
+npm run build
 cd worker && npm ci
 npx wrangler d1 migrations apply rutina-db --remote --env=""
 npx wrangler deploy --env=""

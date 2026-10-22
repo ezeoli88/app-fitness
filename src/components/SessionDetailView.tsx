@@ -1,12 +1,11 @@
-import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { gym } from '@/api/client';
 import { SetRecord } from '@/components/SetRecord';
-import { useGym } from '@/db/GymContext';
 import { formatOptionalReps, formatOptionalWeight, parseRepsInput, parseWeightInput } from '@/domain/series';
-import type { SessionDetails, SessionSet } from '@/domain/types';
-import { useTheme } from '@/ThemeContext';
+import type { SessionSet } from '@/domain/types';
 
 type FieldDraft = { weight: string; reps: string };
 
@@ -24,46 +23,42 @@ function dateLabel(value: string | null): string {
 }
 
 export function SessionDetailView({ sessionId, embedded = false }: { sessionId: number; embedded?: boolean }) {
-  const gym = useGym();
-  const router = useRouter();
-  const { colors } = useTheme();
+  const navigate = useNavigate();
   const draftsRef = useRef<Record<string, FieldDraft>>({});
-  const [session, setSession] = useState<SessionDetails | null>(null);
+  const loadedId = useRef<number | null>(null);
   const [drafts, setDrafts] = useState<Record<string, FieldDraft>>({});
   const [error, setError] = useState<string | null>(null);
   const writes = useRef<{ current: Promise<unknown> }>({ current: Promise.resolve() });
+  const valid = Number.isSafeInteger(sessionId) && sessionId >= 1;
+  const query = useQuery({
+    queryKey: ['session-detail', sessionId],
+    queryFn: () => gym.getSessionDetails(sessionId),
+    enabled: valid,
+    staleTime: Infinity,
+  });
 
   useEffect(() => {
-    let mounted = true;
-    setSession(null);
-    setError(null);
-    void gym.getSessionDetails(sessionId).then((details) => {
-      if (!mounted) return;
-      if (!details) {
-        setError('No encontramos esta sesión en tu historial.');
-        return;
+    const details = query.data;
+    if (!details || details.status === 'open' || loadedId.current === details.id) return;
+    loadedId.current = details.id;
+    const initial: Record<string, FieldDraft> = {};
+    for (const exercise of details.exercises) {
+      for (const series of exercise.series) {
+        initial[String(series.id)] = {
+          weight: formatOptionalWeight(series.weightKg),
+          reps: formatOptionalReps(series.actualReps),
+        };
       }
-      if (details.status === 'open') {
-        router.replace(`/session/${details.dayId}`);
-        return;
-      }
-      setSession(details);
-      const initial: Record<string, FieldDraft> = {};
-      for (const exercise of details.exercises) {
-        for (const series of exercise.series) {
-          initial[String(series.id)] = {
-            weight: formatOptionalWeight(series.weightKg),
-            reps: formatOptionalReps(series.actualReps),
-          };
-        }
-      }
-      draftsRef.current = initial;
-      setDrafts(initial);
-    }).catch((reason: unknown) => {
-      if (mounted) setError(reason instanceof Error ? reason.message : 'No se pudo cargar el historial.');
-    });
-    return () => { mounted = false; };
-  }, [gym, sessionId, router]);
+    }
+    draftsRef.current = initial;
+    setDrafts(initial);
+  }, [query.data]);
+
+  useEffect(() => {
+    const details = query.data;
+    if (details?.status !== 'open') return;
+    void navigate({ to: '/session/$dayId', params: { dayId: String(details.dayId) }, replace: true });
+  }, [navigate, query.data]);
 
   const updateText = (set: SessionSet, field: 'weight' | 'reps', text: string) => {
     draftsRef.current = {
@@ -96,50 +91,40 @@ export function SessionDetailView({ sessionId, embedded = false }: { sessionId: 
     }
   };
 
-  const completed = session?.exercises.reduce(
-    (total, exercise) => total + exercise.series.filter((series) => series.completed).length,
-    0
-  ) ?? 0;
+  const session = query.data && query.data.status !== 'open' ? query.data : null;
+  const completed = session?.exercises.reduce((total, exercise) => total + exercise.series.filter((series) => series.completed).length, 0) ?? 0;
   const planned = session?.exercises.reduce((total, exercise) => total + exercise.sets, 0) ?? 0;
+  const message = !valid
+    ? 'No encontramos esta sesión en tu historial.'
+    : error ?? (query.isError ? (query.error instanceof Error ? query.error.message : 'No se pudo cargar el historial.') : null)
+      ?? (query.isSuccess && !query.data ? 'No encontramos esta sesión en tu historial.' : null);
 
   return (
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <div className={embedded ? '' : 'page'}>
       {embedded ? null : (
-        <Pressable onPress={() => router.canGoBack() ? router.back() : router.replace('/history')} accessibilityRole="button">
-          <Text style={[styles.back, { color: colors.muted }]}>← Sesiones</Text>
-        </Pressable>
+        <button type="button" className="back" onClick={() => void navigate({ to: '/history' })}>← Sesiones</button>
       )}
-      <Text style={[styles.kicker, { color: colors.muted }]}>{session?.routineTitle}</Text>
-      <Text style={[styles.hero, { color: colors.text }]}>{session?.dayTitle}</Text>
       {session ? (
         <>
-          <Text style={[styles.date, { color: colors.muted }]}>{dateLabel(session.completedAt)}</Text>
-          <View style={[styles.summary, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: colors.muted }]}>Estado</Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {session.status === 'partial' ? 'Parcial' : 'Completa'}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: colors.muted }]}>Series realizadas</Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>{completed} / {planned}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: colors.muted }]}>Ejercicios</Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {session.exercises.filter((exercise) => exercise.series.some((series) => series.completed)).length} / {session.exercises.length}
-              </Text>
-            </View>
-          </View>
-          <Text style={[styles.note, { color: colors.muted }]}>Los pesos y repeticiones se guardan al editarlos. “Sin dato” indica que no se registraron.</Text>
-          {error ? <Text accessibilityRole="alert" style={[styles.error, { color: colors.brass }]}>{error}</Text> : null}
+          <p className="session-kicker">{session.routineTitle}</p>
+          <h1 className="session-hero">{session.dayTitle}</h1>
+          <p className="detail-date">{dateLabel(session.completedAt)}</p>
+          <div className="summary">
+            <div className="summary-row"><span className="summary-label">Estado</span><span className="summary-value">{session.status === 'partial' ? 'Parcial' : 'Completa'}</span></div>
+            <div className="summary-row"><span className="summary-label">Series realizadas</span><span className="summary-value">{completed} / {planned}</span></div>
+            <div className="summary-row">
+              <span className="summary-label">Ejercicios</span>
+              <span className="summary-value">{session.exercises.filter((exercise) => exercise.series.some((series) => series.completed)).length} / {session.exercises.length}</span>
+            </div>
+          </div>
+          <p className="note detail-note">Los pesos y repeticiones se guardan al editarlos. “Sin dato” indica que no se registraron.</p>
+          {message ? <p className="error" role="alert">{message}</p> : null}
           {session.exercises.map((exercise) => (
-            <View key={exercise.id} style={[styles.exercise, { borderTopColor: colors.border }]}>
-              <View style={styles.exerciseHeader}>
-                <Text style={[styles.exerciseName, { color: colors.text }]}>{exercise.name}</Text>
-                <Text style={[styles.target, { color: colors.muted }]}>{exercise.sets} × {exercise.reps}</Text>
-              </View>
+            <section key={exercise.id} className="session-block">
+              <div className="exercise-head">
+                <h2 className="exercise-name">{exercise.name}</h2>
+                <span className="meta">{exercise.sets} × {exercise.reps}</span>
+              </div>
               {exercise.series.map((series) => {
                 const draft = drafts[String(series.id)] ?? {
                   weight: formatOptionalWeight(series.weightKg),
@@ -161,28 +146,10 @@ export function SessionDetailView({ sessionId, embedded = false }: { sessionId: 
                   />
                 );
               })}
-            </View>
+            </section>
           ))}
         </>
-      ) : error ? <Text accessibilityRole="alert" style={[styles.error, { color: colors.brass }]}>{error}</Text> : null}
-    </ScrollView>
+      ) : message ? <p className="error" role="alert">{message}</p> : <p className="note">Cargando…</p>}
+    </div>
   );
 }
-
-const styles = StyleSheet.create({
-  content: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 42 },
-  back: { fontSize: 14, marginBottom: 20 },
-  kicker: { fontSize: 11, letterSpacing: 1.7, textTransform: 'uppercase' },
-  hero: { fontSize: 24, fontWeight: '600', marginTop: 5 },
-  date: { fontSize: 13, marginTop: 9 },
-  summary: { borderWidth: 1, borderRadius: 16, padding: 15, marginTop: 18, gap: 10 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  summaryLabel: { fontSize: 13 },
-  summaryValue: { fontSize: 14, fontWeight: '600' },
-  note: { fontSize: 12, lineHeight: 18, marginTop: 13 },
-  error: { fontSize: 13, marginTop: 13 },
-  exercise: { paddingVertical: 16, borderTopWidth: 1, marginTop: 10 },
-  exerciseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 },
-  exerciseName: { flex: 1, fontSize: 16, fontWeight: '600' },
-  target: { fontSize: 13 },
-});

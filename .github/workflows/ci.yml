@@ -17,7 +17,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx tsc --noEmit --pretty false
-      - run: npm run export:web
+      - run: npm run build
       - run: node scripts/check-web-bundle.mjs
       - name: El worker de producción no puede saltarse Access
         run: |
@@ -56,6 +56,6 @@ jobs:
       - run: npm ci
       - run: npm ci
         working-directory: worker
-      - run: npm run export:web
+      - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --config e2e/playwright.config.ts

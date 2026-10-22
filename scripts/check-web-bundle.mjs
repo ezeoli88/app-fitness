@@ -14,7 +14,7 @@ async function files(dir) {
 
 const root = path.resolve('dist');
 const bundles = await files(root);
-const forbidden = ['expo-sqlite', 'expo-notifications', 'expo-splash-screen'];
+const forbidden = ['expo-sqlite', 'expo-notifications', 'expo-splash-screen', 'expo-router', 'react-native'];
 const hits = [];
 for (const file of bundles) {
   const text = await readFile(file, 'utf8');

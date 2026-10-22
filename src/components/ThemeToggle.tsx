@@ -1,108 +1,24 @@
-import { Pressable, StyleSheet, View } from 'react-native';
-
-import { useTheme } from '@/ThemeContext';
-
-function SunIcon({ color }: { color: string }) {
-  return (
-    <View style={iconStyles.box}>
-      <View style={[iconStyles.sunCore, { borderColor: color }]} />
-      <View style={[iconStyles.ray, iconStyles.rayN, { backgroundColor: color }]} />
-      <View style={[iconStyles.ray, iconStyles.rayS, { backgroundColor: color }]} />
-      <View style={[iconStyles.ray, iconStyles.rayE, { backgroundColor: color }]} />
-      <View style={[iconStyles.ray, iconStyles.rayW, { backgroundColor: color }]} />
-      <View style={[iconStyles.ray, iconStyles.rayNE, { backgroundColor: color }]} />
-      <View style={[iconStyles.ray, iconStyles.rayNW, { backgroundColor: color }]} />
-      <View style={[iconStyles.ray, iconStyles.raySE, { backgroundColor: color }]} />
-      <View style={[iconStyles.ray, iconStyles.raySW, { backgroundColor: color }]} />
-    </View>
-  );
-}
-
-function MoonIcon({ color, bg }: { color: string; bg: string }) {
-  return (
-    <View style={[iconStyles.box, iconStyles.moonBox]}>
-      <View style={[iconStyles.moon, { backgroundColor: color }]} />
-      <View style={[iconStyles.moonCut, { backgroundColor: bg }]} />
-    </View>
-  );
-}
+import { useTheme } from '@/theme/ThemeProvider';
 
 export function ThemeToggle() {
-  const { theme, colors, toggleTheme } = useTheme();
+  const { theme, toggleTheme } = useTheme();
   const toLight = theme === 'dark';
-
   return (
-    <Pressable
-      onPress={toggleTheme}
-      accessibilityRole="button"
-      accessibilityLabel={toLight ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
-      hitSlop={8}
-      style={[styles.button, { borderColor: colors.border, backgroundColor: colors.card }]}>
+    <button
+      type="button"
+      className="theme-toggle"
+      aria-label={toLight ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+      onClick={toggleTheme}>
       {toLight ? (
-        <SunIcon color={colors.brass} />
+        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+          <circle cx="11" cy="11" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M11 2.2v2.4M11 17.4v2.4M2.2 11h2.4M17.4 11h2.4M4.6 4.6l1.7 1.7M15.7 15.7l1.7 1.7M17.4 4.6l-1.7 1.7M6.3 15.7l-1.7 1.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
       ) : (
-        <MoonIcon color={colors.brass} bg={colors.card} />
+        <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
+          <path d="M14.2 3.2a7.2 7.2 0 1 0 4.6 11.6A7.4 7.4 0 0 1 14.2 3.2z" fill="currentColor" />
+        </svg>
       )}
-    </Pressable>
+    </button>
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    width: 44,
-    height: 44,
-    borderWidth: 1,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
-
-const iconStyles = StyleSheet.create({
-  box: {
-    width: 22,
-    height: 22,
-  },
-  sunCore: {
-    position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1.6,
-    left: 7,
-    top: 7,
-  },
-  ray: {
-    position: 'absolute',
-    width: 1.6,
-    height: 3.4,
-    borderRadius: 1,
-  },
-  rayN: { left: 10.2, top: 1 },
-  rayS: { left: 10.2, bottom: 1 },
-  rayE: { top: 10.2, right: 1, width: 3.4, height: 1.6 },
-  rayW: { top: 10.2, left: 1, width: 3.4, height: 1.6 },
-  rayNE: { right: 3.4, top: 3.4, transform: [{ rotate: '45deg' }] },
-  rayNW: { left: 3.4, top: 3.4, transform: [{ rotate: '-45deg' }] },
-  raySE: { right: 3.4, bottom: 3.4, transform: [{ rotate: '-45deg' }] },
-  raySW: { left: 3.4, bottom: 3.4, transform: [{ rotate: '45deg' }] },
-  moonBox: {
-    overflow: 'hidden',
-  },
-  moon: {
-    position: 'absolute',
-    width: 15,
-    height: 15,
-    borderRadius: 8,
-    left: 5,
-    top: 3.5,
-  },
-  moonCut: {
-    position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    left: 2,
-    top: 2,
-  },
-});

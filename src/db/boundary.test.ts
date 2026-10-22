@@ -2,8 +2,9 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = join(__dirname, '..', '..');
+const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -23,9 +24,9 @@ const shared = [
   ...sourceFiles(join(root, 'src/domain')),
 ];
 
-const forbidden = /from ['"](?:react-native|expo(?:-[^'"]*)?|@\/db\/writes|expo-sqlite)['"]/;
+const forbidden = /from ['"](?:react-native|react(?:-dom)?|expo(?:-[^'"]*)?|@\/db\/writes|expo-sqlite|vite|@tanstack\/[^'"]+)['"]/;
 
-it('keeps the shared repository free of React Native and Expo imports', () => {
+it('keeps the shared repository free of UI framework imports', () => {
   const offenders = shared.filter((path) => forbidden.test(readFileSync(path, 'utf8')));
   expect(offenders).toEqual([]);
 });

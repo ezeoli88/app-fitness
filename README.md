@@ -18,9 +18,9 @@ La única fuente de datos es la API del Worker. El navegador no guarda el entren
 
 ## Web local
 
-Requisito: Node 22.13 o posterior. Instalar las dependencias con `npm ci` en la raíz y en `worker/`.
+Requisito: Node 22.13 o posterior. El front es Vite + React. Las rutas usan TanStack Router, los datos TanStack Query y el editor TanStack Form. Instalar las dependencias con `npm ci` en la raíz y en `worker/`.
 
-La web de desarrollo habla con un Worker en `http://127.0.0.1:8787`. Ese proceso acepta el bypass de Access solo si el host es `localhost` o `127.0.0.1`. En cualquier otro host el bypass se ignora.
+La web de desarrollo, en `http://127.0.0.1:8081`, proxea `/api` al Worker en `http://127.0.0.1:8787`. Ese proceso acepta el bypass de Access solo si el host es `localhost` o `127.0.0.1`. En cualquier otro host el bypass se ignora.
 
 Si ya habías creado una D1 local con el esquema anterior, borrá `worker/.wrangler` antes de aplicar las migraciones.
 
@@ -28,17 +28,19 @@ Si ya habías creado una D1 local con el esquema anterior, borrá `worker/.wrang
 cp worker/.dev.vars.example worker/.dev.vars
 cd worker && npm ci
 npx wrangler d1 migrations apply rutina-db --local
-cd .. && npm run export:web
+npx wrangler dev --port 8787 --ip 127.0.0.1
+```
+
+En otra terminal, desde la raíz: `npm run dev`. Abrí `http://127.0.0.1:8081`.
+
+El build de producción no define `VITE_API_URL`: la app usa `/api` en el mismo origen. Para ver ese build:
+
+```sh
+npm run build
 cd worker && npx wrangler dev --port 8787 --ip 127.0.0.1
 ```
 
-Abrí `http://127.0.0.1:8787`. El export de producción no define `EXPO_PUBLIC_API_URL`: la app usa `/api` en el mismo origen. Para Metro (`npm run web`) apuntá el cliente al Worker:
-
-```sh
-EXPO_PUBLIC_API_URL=http://127.0.0.1:8787/api npm run web
-```
-
-En ese caso el Worker responde CORS solo a `http://localhost:8081` y `http://127.0.0.1:8081`.
+Abrí `http://127.0.0.1:8787`.
 
 ## Cloudflare
 
@@ -47,15 +49,14 @@ Todavía no hay una base ni un equipo de Access creados en esta rama. Los identi
 ## Verificación
 
 ```sh
-node node_modules/jest/bin/jest.js --runInBand --watchAll=false
-node node_modules/typescript/bin/tsc --noEmit
-npm run export:web
+npm test
+npm run typecheck
+npm run build
+node scripts/check-web-bundle.mjs
 cd worker && npm test && npm run typecheck && npx wrangler deploy --dry-run --env=""
 git diff --check
 ```
 
-`wrangler deploy --dry-run` necesita el `dist/` del export y `--env=""` porque el archivo declara también el ambiente `preview`. No publica nada.
+`wrangler deploy --dry-run` necesita el `dist/` de Vite y `--env=""` porque el archivo declara también el ambiente `preview`. No publica nada.
 
-Las pruebas del Worker cubren el repositorio sobre D1, la siembra del catálogo, escrituras concurrentes y la paginación del historial. El registro está en [docs/VALIDATION.md](docs/VALIDATION.md).
-
-Documentación: [Expo SDK 57](https://docs.expo.dev/versions/v57.0.0/).
+Las pruebas del Worker cubren el repositorio sobre D1, la siembra del catálogo, escrituras concurrentes y la paginación del historial. El navegador se prueba con Playwright (`npx playwright test --config e2e/playwright.config.ts`) contra ese build. El registro está en [docs/VALIDATION.md](docs/VALIDATION.md).
