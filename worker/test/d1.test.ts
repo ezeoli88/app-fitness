@@ -42,5 +42,13 @@ describe('migraciones D1', () => {
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('tombstones', 'sync_meta')"
     ).all<{ name: string }>();
     expect(tables.results).toEqual([]);
+    await expect(env.DB.prepare(
+      'INSERT INTO exercises (day_id, name, sets, reps, sort, target_weight_kg) VALUES (?, ?, 3, 8, 0, -1)'
+    ).bind(day?.id, 'X').run()).rejects.toThrow();
+    await env.DB.prepare(
+      'INSERT INTO exercises (day_id, name, sets, reps, sort) VALUES (?, ?, 3, 8, 0)'
+    ).bind(day?.id, 'Y').run();
+    const plain = await env.DB.prepare("SELECT target_weight_kg FROM exercises WHERE name = 'Y'").first();
+    expect(plain).toEqual({ target_weight_kg: null });
   });
 });

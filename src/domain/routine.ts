@@ -38,6 +38,10 @@ export function validateRoutineDraft(draft: RoutineDraft): string | null {
       if (!Number.isSafeInteger(exercise.reps) || exercise.reps < 1) {
         return `${exercise.name}: ingresá una cantidad de repeticiones válida.`;
       }
+      const target = exercise.targetWeightKg ?? null;
+      if (target !== null && (!Number.isFinite(target) || target < 0)) {
+        return `${exercise.name}: ingresá un peso objetivo igual o mayor a cero.`;
+      }
     }
   }
   return null;

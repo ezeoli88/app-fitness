@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { gym } from '@/api/client';
 import { SetRecord } from '@/components/SetRecord';
 import { UndoToast } from '@/components/UndoToast';
+import { weightPrefills } from '@/domain/prefill';
 import { countCompletedSets } from '@/domain/session';
 import { formatOptionalReps, formatOptionalWeight, parseRepsInput, parseWeightInput } from '@/domain/series';
 import type { SessionDetails, SessionSet } from '@/domain/types';
@@ -100,6 +101,30 @@ function SessionPage() {
   });
   const previous: Record<number, SessionSet[]> = {};
   exerciseIds.forEach((id, index) => { previous[id] = previousQueries[index]?.data ?? []; });
+
+  const hints = useQuery({
+    queryKey: ['weight-hints', session?.id],
+    queryFn: () => gym.exerciseWeightHints(exerciseIds),
+    enabled: Boolean(session),
+    staleTime: Infinity,
+  });
+  const prefilledFor = useRef<number | null>(null);
+  useEffect(() => {
+    const current = sessionRef.current;
+    if (!hints.data || !current || prefilledFor.current === current.id) return;
+    prefilledFor.current = current.id;
+    // Solo se precarga el borrador; se guarda al marcar la serie o al finalizar.
+    let updated: Record<FieldKey, FieldDraft> | null = null;
+    for (const fill of weightPrefills(current, hints.data)) {
+      const rowKey = key(fill.exerciseId, fill.setIndex);
+      const draft: FieldDraft = (updated ?? draftsRef.current)[rowKey] ?? { weight: '', reps: '' };
+      if (draft.weight.trim()) continue;
+      updated = { ...(updated ?? draftsRef.current), [rowKey]: { ...draft, weight: formatOptionalWeight(fill.weightKg) } };
+    }
+    if (!updated) return;
+    draftsRef.current = updated;
+    setDrafts(updated);
+  }, [hints.data, session?.id]);
 
   const updateText = (exerciseId: number, setIndex: number, field: 'weight' | 'reps', text: string) => {
     const rowKey = key(exerciseId, setIndex);
@@ -376,7 +401,12 @@ function SessionPage() {
               <div className="exercise-head">
                 <div>
                   <h2 className="exercise-name">{exercise.name}</h2>
-                  <p className="meta">Objetivo: {exercise.sets} × {exercise.reps}</p>
+                  <p className="meta">
+                    Objetivo: {exercise.sets} × {exercise.reps}
+                    {hints.data?.[exercise.sourceExerciseId]?.targetWeightKg != null
+                      ? ` · ${formatOptionalWeight(hints.data[exercise.sourceExerciseId].targetWeightKg)} kg`
+                      : ''}
+                  </p>
                 </div>
                 {prior.length > 0 && session.status === 'open' ? (
                   <button type="button" className="copy" onClick={() => void copyPrevious(exercise.sourceExerciseId).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'No se pudieron copiar los valores anteriores.'))}>Copiar anterior</button>

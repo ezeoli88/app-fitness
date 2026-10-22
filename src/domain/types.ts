@@ -20,8 +20,12 @@ export type Exercise = {
   sets: number;
   reps: number;
   sort: number;
+  targetWeightKg: number | null;
   archivedAt?: string | null;
 };
+
+/** Datos para precargar el peso de las series de un ejercicio. */
+export type WeightHint = { lastWeightKg: number | null; targetWeightKg: number | null };
 
 export type SessionStatus = 'open' | 'completed' | 'partial';
 
@@ -84,6 +88,7 @@ export type RoutineDayDraft = {
     sets: number;
     reps: number;
     sort: number;
+    targetWeightKg?: number | null;
   }[];
 };
 

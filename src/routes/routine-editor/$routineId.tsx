@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { gym } from '@/api/client';
 import { validateRoutineDraft } from '@/domain/routine';
+import { formatOptionalWeight, parseWeightInput } from '@/domain/series';
 import type { RoutineDraft } from '@/domain/types';
 import { refreshTraining } from '@/query';
 import { confirm } from '@/ui/confirm';
@@ -20,8 +21,43 @@ function blankRoutine(): RoutineDraft {
     title: '',
     level: 'personalizada',
     sort: 0,
-    days: [{ id: null, title: 'Día 1', sort: 0, exercises: [{ id: null, name: '', sets: 3, reps: 10, sort: 0 }] }],
+    days: [{ id: null, title: 'Día 1', sort: 0, exercises: [{ id: null, name: '', sets: 3, reps: 10, sort: 0, targetWeightKg: null }] }],
   };
+}
+
+/** Texto del campo a número; NaN si todavía no es un peso válido (p. ej. "12,"). */
+function readWeight(text: string): number | null {
+  try {
+    return parseWeightInput(text);
+  } catch {
+    return Number.NaN;
+  }
+}
+
+function TargetWeightField({ label, value, onChange }: {
+  label: string;
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  const [text, setText] = useState(() => formatOptionalWeight(value));
+  // Si el valor cambió desde afuera (reordenar, reiniciar), se muestra ese valor.
+  const shown = Object.is(readWeight(text), value) ? text : formatOptionalWeight(Number.isNaN(value) ? null : value);
+  return (
+    <div className="number-field">
+      <span className="label">Peso objetivo (kg)</span>
+      <input
+        className="numeric"
+        inputMode="decimal"
+        aria-label={label}
+        placeholder="—"
+        value={shown}
+        onChange={(event) => {
+          setText(event.target.value);
+          onChange(readWeight(event.target.value));
+        }}
+      />
+    </div>
+  );
 }
 
 function RoutineEditorPage() {
@@ -183,7 +219,7 @@ function EditorForm({ initial }: { initial: RoutineDraft }) {
               id: null,
               title: `Día ${current.length + 1}`,
               sort: current.length,
-              exercises: [{ id: null, name: '', sets: 3, reps: 10, sort: 0 }],
+              exercises: [{ id: null, name: '', sets: 3, reps: 10, sort: 0, targetWeightKg: null }],
             }])}>
             + Agregar día
           </button>
@@ -247,6 +283,13 @@ function EditorForm({ initial }: { initial: RoutineDraft }) {
                         }}
                       />
                     </div>
+                    <TargetWeightField
+                      label={`Peso objetivo en kilogramos para ${exercise.name || 'el ejercicio'}`}
+                      value={exercise.targetWeightKg ?? null}
+                      onChange={(targetWeightKg) => updateDays((current) => current.map((item, index) => index === dayIndex
+                        ? { ...item, exercises: item.exercises.map((row, rowIndex) => rowIndex === exerciseIndex ? { ...row, targetWeightKg } : row) }
+                        : item))}
+                    />
                     <div className="order">
                       <button type="button" className="link" aria-label="Subir ejercicio" disabled={exerciseIndex === 0} onClick={() => moveExercise(dayIndex, exerciseIndex, -1)}>↑</button>
                       <button type="button" className="link" aria-label="Bajar ejercicio" disabled={exerciseIndex === day.exercises.length - 1} onClick={() => moveExercise(dayIndex, exerciseIndex, 1)}>↓</button>
@@ -267,7 +310,7 @@ function EditorForm({ initial }: { initial: RoutineDraft }) {
                 type="button"
                 className="link add-exercise"
                 onClick={() => updateDays((current) => current.map((item, index) => index === dayIndex
-                  ? { ...item, exercises: [...item.exercises, { id: null, name: '', sets: 3, reps: 10, sort: item.exercises.length }] }
+                  ? { ...item, exercises: [...item.exercises, { id: null, name: '', sets: 3, reps: 10, sort: item.exercises.length, targetWeightKg: null }] }
                   : item))}>
                 + Agregar ejercicio
               </button>

@@ -67,6 +67,41 @@ describe('API', () => {
     const malformed = await api('/api/routines', { method: 'POST', body: '{' });
     expect(malformed.status).toBe(422);
   });
+
+  it('guarda el peso objetivo y lo devuelve en las lecturas de ejercicios', async () => {
+    const exercise = (targetWeightKg: unknown) => ({ id: null, name: 'Press', sets: 3, reps: 8, sort: 0, targetWeightKg });
+    const routine = (exercises: unknown[]) => ({
+      id: null, title: 'Fuerza', level: 'x', sort: 0,
+      days: [{ id: null, title: 'Día A', sort: 0, exercises }],
+    });
+    const post = (body: unknown) => api('/api/routines', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect((await post(routine([exercise(-1)]))).status).toBe(422);
+    const saved = await post(routine([exercise(42.5), { id: null, name: 'Remo', sets: 3, reps: 10, sort: 1 }]));
+    expect(saved.status).toBe(200);
+    const { id } = await saved.json() as { id: string };
+    await api('/api/routines/active', { method: 'PUT', body: JSON.stringify({ id }) });
+
+    const draft = await (await api(`/api/routines/${id}/draft`)).json() as { days: { id: number; exercises: { id: number; targetWeightKg: number | null }[] }[] };
+    expect(draft.days[0].exercises.map((item) => item.targetWeightKg)).toEqual([42.5, null]);
+    const dayId = draft.days[0].id;
+    const listed = await (await api(`/api/days/${dayId}/exercises`)).json() as { targetWeightKg: number | null }[];
+    expect(listed.map((item) => item.targetWeightKg)).toEqual([42.5, null]);
+    const home = await (await api('/api/home')).json() as { days: { exercises: { targetWeightKg: number | null }[] }[] };
+    expect(home.days[0].exercises.map((item) => item.targetWeightKg)).toEqual([42.5, null]);
+
+    const [press, remo] = draft.days[0].exercises;
+    const hints = await api(`/api/exercises/weight-hints?ids=${press.id},${remo.id}`);
+    expect(await hints.json()).toEqual({
+      [press.id]: { lastWeightKg: null, targetWeightKg: 42.5 },
+      [remo.id]: { lastWeightKg: null, targetWeightKg: null },
+    });
+    expect((await api('/api/exercises/weight-hints?ids=x')).status).toBe(422);
+    expect((await api('/api/exercises/weight-hints')).status).toBe(422);
+  });
 });
 
 describe('activos estáticos', () => {
