@@ -1,6 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { useLayout } from '@/components/useLayout';
+import { confirm } from '@/platform/confirm';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SetRecord } from '@/components/SetRecord';
@@ -39,6 +42,7 @@ export default function SessionScreen() {
   const gym = useGym();
   const router = useRouter();
   const { colors } = useTheme();
+  const { wide } = useLayout();
   const rest = useRestTimer();
 
   const [session, setSession] = useState<SessionDetails | null>(null);
@@ -163,7 +167,7 @@ export default function SessionScreen() {
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : 'Revisá los datos de las series.';
       setError(message);
-      Alert.alert('Revisá los datos', message);
+      confirm({ title: 'Revisá los datos', message, actions: [{ text: 'Entendido' }] });
       return false;
     }
   };
@@ -278,18 +282,22 @@ export default function SessionScreen() {
 
   const discardEmpty = () => {
     if (!session) return;
-    Alert.alert('Descartar entrenamiento vacío', 'Esta sesión no se guardará en el historial.', [
-      { text: 'Seguir entrenando', style: 'cancel' },
-      {
-        text: 'Descartar',
-        style: 'destructive',
-        onPress: () => {
-          void discardEmptySession().catch((reason: unknown) =>
-            setError(reason instanceof Error ? reason.message : 'No se pudo descartar la sesión.')
-          );
+    confirm({
+      title: 'Descartar entrenamiento vacío',
+      message: 'Esta sesión no se guardará en el historial.',
+      actions: [
+        { text: 'Seguir entrenando', style: 'cancel' },
+        {
+          text: 'Descartar',
+          style: 'destructive',
+          onPress: () => {
+            void discardEmptySession().catch((reason: unknown) =>
+              setError(reason instanceof Error ? reason.message : 'No se pudo descartar la sesión.')
+            );
+          },
         },
-      },
-    ]);
+      ],
+    });
   };
 
   const finish = async () => {
@@ -303,18 +311,22 @@ export default function SessionScreen() {
     sessionRef.current = fresh;
     const completed = countCompletedSets(fresh.completedSets);
     if (completed === 0) {
-      Alert.alert('Entrenamiento vacío', 'No hay series registradas.', [
-        { text: 'Seguir entrenando', style: 'cancel' },
-        { text: 'Descartar', style: 'destructive', onPress: () => {
-          void discardEmptySession().catch((reason: unknown) =>
-            setError(reason instanceof Error ? reason.message : 'No se pudo descartar la sesión.')
-          );
-        } },
-      ]);
+      confirm({
+        title: 'Entrenamiento vacío',
+        message: 'No hay series registradas.',
+        actions: [
+          { text: 'Seguir entrenando', style: 'cancel' },
+          { text: 'Descartar', style: 'destructive', onPress: () => {
+            void discardEmptySession().catch((reason: unknown) =>
+              setError(reason instanceof Error ? reason.message : 'No se pudo descartar la sesión.')
+            );
+          } },
+        ],
+      });
       return;
     }
     const total = sumTargetSets(fresh);
-    const confirm = () => {
+    const confirmFinish = () => {
       void (async () => {
         try {
           await rest.skipRest(session.id);
@@ -333,12 +345,16 @@ export default function SessionScreen() {
       })();
     };
     if (completed < total) {
-      Alert.alert('Finalizar entrenamiento', `Registraste ${completed} de ${total} series. Podés terminar esta sesión ahora.`, [
-        { text: 'Seguir entrenando', style: 'cancel' },
-        { text: 'Finalizar sesión', onPress: confirm },
-      ]);
+      confirm({
+        title: 'Finalizar entrenamiento',
+        message: `Registraste ${completed} de ${total} series. Podés terminar esta sesión ahora.`,
+        actions: [
+          { text: 'Seguir entrenando', style: 'cancel' },
+          { text: 'Finalizar sesión', onPress: confirmFinish },
+        ],
+      });
     } else {
-      confirm();
+      confirmFinish();
     }
   };
 
@@ -359,9 +375,37 @@ export default function SessionScreen() {
   const completedSets = session ? countCompletedSets(session.completedSets) : 0;
   const totalSets = session ? sumTargetSets(session) : 0;
 
+  const minutes = Math.floor(rest.remainingSeconds / 60);
+  const seconds = rest.remainingSeconds % 60;
+  const actions = session?.status === 'open' ? (
+    <View style={styles.actions}>
+      <Pressable onPress={() => void finish().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'No se pudo finalizar la sesión.'))} accessibilityRole="button" style={[styles.finish, { backgroundColor: colors.chalk }]}>
+        <Text style={[styles.finishText, { color: colors.bg }]}>Finalizar entrenamiento</Text>
+      </Pressable>
+      {completedSets === 0 ? (
+        <Pressable onPress={discardEmpty} accessibilityRole="button" style={styles.discard}>
+          <Text style={[styles.discardText, { color: colors.muted }]}>Descartar sesión vacía</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  ) : null;
+  const restPanel = wide && rest.activeTimer ? (
+    <View style={[styles.sideRest, { backgroundColor: colors.card, borderColor: colors.lastBorder }]}>
+      <Text style={[styles.resumeKicker, { color: colors.muted }]}>DESCANSO</Text>
+      <Text style={[styles.sideTime, { color: colors.text }]}>{minutes}:{String(seconds).padStart(2, '0')}</Text>
+      <Pressable onPress={() => void rest.extendRest()} accessibilityRole="button">
+        <Text style={[styles.copy, { color: colors.brass }]}>+30 s</Text>
+      </Pressable>
+      <Pressable onPress={() => void rest.skipRest()} accessibilityRole="button">
+        <Text style={[styles.copy, { color: colors.brass }]}>Omitir</Text>
+      </Pressable>
+    </View>
+  ) : null;
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <View style={[styles.frame, wide ? styles.frameWide : null]}>
+      <ScrollView style={wide ? styles.main : undefined} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <Pressable
             accessibilityRole="button"
@@ -425,19 +469,15 @@ export default function SessionScreen() {
           );
         })}
 
-        {session?.status === 'open' ? (
-          <View style={styles.actions}>
-            <Pressable onPress={() => void finish().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'No se pudo finalizar la sesión.'))} accessibilityRole="button" style={[styles.finish, { backgroundColor: colors.chalk }]}>
-              <Text style={[styles.finishText, { color: colors.bg }]}>Finalizar entrenamiento</Text>
-            </Pressable>
-            {completedSets === 0 ? (
-              <Pressable onPress={discardEmpty} accessibilityRole="button" style={styles.discard}>
-                <Text style={[styles.discardText, { color: colors.muted }]}>Descartar sesión vacía</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
+        {wide ? null : actions}
       </ScrollView>
+      {wide ? (
+        <View style={[styles.side, { borderLeftColor: colors.border }]}>
+          {restPanel}
+          {actions}
+        </View>
+      ) : null}
+      </View>
       <UndoToast visible={toast} message={session?.status === 'partial' ? 'Sesión parcial guardada' : 'Entrenamiento guardado'} onUndo={() => void undo()} />
     </SafeAreaView>
   );
@@ -445,6 +485,13 @@ export default function SessionScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  frame: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center' },
+  frameWide: { maxWidth: 1120, flexDirection: 'row' },
+  main: { flex: 1 },
+  side: { width: 300, borderLeftWidth: 1, padding: 18, gap: 16 },
+  sideRest: { borderWidth: 1, borderRadius: 16, padding: 16, gap: 8 },
+  sideTime: { fontSize: 28, fontWeight: '700' },
+  resumeKicker: { fontSize: 10, letterSpacing: 1.5, fontWeight: '700' },
   content: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 115 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
   back: { fontSize: 14 },

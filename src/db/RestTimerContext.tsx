@@ -1,23 +1,14 @@
-import * as Notifications from 'expo-notifications';
-import { useSQLiteContext } from 'expo-sqlite';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, Platform, Vibration } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
-import { getSetting, setSetting } from '@/db/settings';
+import { useData } from '@/data/DataProvider';
 import type { RestTimer } from '@/domain/types';
+import { restAlerts } from '@/platform/restAlerts';
 
 const ENABLED_KEY = 'restEnabled';
 const DURATION_KEY = 'restDurationSeconds';
 const ACTIVE_KEY = 'activeRestTimer';
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+const ASKED_KEY = 'restPermissionRequested';
 
 type RestTimerContextValue = {
   enabled: boolean;
@@ -31,30 +22,13 @@ type RestTimerContextValue = {
   startRest(sessionId: number, dayId: number, exerciseId: number, setIndex: number): Promise<void>;
   extendRest(): Promise<void>;
   skipRest(sessionId?: number, exerciseId?: number, setIndex?: number): Promise<void>;
+  requestNotificationPermission(): Promise<void>;
 };
 
 const RestTimerContext = createContext<RestTimerContextValue | null>(null);
 
-async function ensureRestChannel(): Promise<void> {
-  if (Platform.OS !== 'android') return;
-  await Notifications.setNotificationChannelAsync('rest-timer', {
-    name: 'Descanso entre series',
-    importance: Notifications.AndroidImportance.HIGH,
-    enableVibrate: true,
-    vibrationPattern: [0, 250, 200, 250],
-  });
-}
-
-async function canNotify(ask: boolean): Promise<boolean> {
-  await ensureRestChannel();
-  const permissions = await Notifications.getPermissionsAsync();
-  if (permissions.granted) return true;
-  if (!ask || !permissions.canAskAgain) return false;
-  return (await Notifications.requestPermissionsAsync()).granted;
-}
-
 export function RestTimerProvider({ children }: { children: ReactNode }) {
-  const db = useSQLiteContext();
+  const { settings, gym } = useData();
   const [enabled, setEnabledState] = useState(true);
   const [durationSeconds, setDurationState] = useState(90);
   const [activeTimer, setActiveTimer] = useState<RestTimer | null>(null);
@@ -64,7 +38,9 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
   const activeRef = useRef<RestTimer | null>(null);
   const enabledRef = useRef(true);
   const durationRef = useRef(90);
-  const didVibrate = useRef<number | null>(null);
+  const askedRef = useRef(false);
+  const pendingPermission = useRef<Promise<boolean> | null>(null);
+  const didBuzz = useRef<number | null>(null);
   const scheduledId = useRef<string | null>(null);
   const operation = useRef<Promise<unknown>>(Promise.resolve());
 
@@ -74,87 +50,87 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
     return next;
   }, []);
 
-  const cancelNotification = useCallback(async (notificationId: string | null) => {
-    if (!notificationId) return;
-    try {
-      await Notifications.cancelScheduledNotificationAsync(notificationId);
-      await Notifications.dismissNotificationAsync(notificationId);
-    } catch {
-      // The OS may already have delivered or cleared this timer notification.
-    }
-  }, []);
-
   const publishTimer = useCallback((next: RestTimer | null) => {
     activeRef.current = next;
     setActiveTimer(next);
-    setRemainingSeconds(next ? Math.max(0, Math.ceil((next.expiresAt - Date.now()) / 1000)) : 0);
-    didVibrate.current = null;
+    const left = next ? Math.max(0, Math.ceil((next.expiresAt - Date.now()) / 1000)) : 0;
+    setRemainingSeconds(left);
+    restAlerts.countdown(next ? left : null);
+    didBuzz.current = null;
   }, []);
 
   const replaceTimer = useCallback(
     async (next: RestTimer | null, requestPermission: boolean) => {
       const previousId = scheduledId.current;
       scheduledId.current = null;
-      await cancelNotification(previousId);
+      await restAlerts.cancel(previousId);
       if (activeRef.current !== next) return;
       if (!next) {
-        await setSetting(db, ACTIVE_KEY, '');
+        await settings.set(ACTIVE_KEY, '');
+        restAlerts.countdown(null);
         return;
       }
 
       let notificationId: string | null = null;
       let allowed = false;
       try {
-        const asked = await getSetting(db, 'restPermissionRequested');
+        const asked = await settings.get(ASKED_KEY);
         const ask = requestPermission && asked !== 'true';
-        if (ask) await setSetting(db, 'restPermissionRequested', 'true');
-        allowed = await canNotify(ask);
-      } catch { /* Counter works without notifications. */ }
+        if (ask) {
+          askedRef.current = true;
+          await settings.set(ASKED_KEY, 'true');
+        }
+        const status = await restAlerts.permission();
+        allowed = status === 'granted';
+        if (!allowed && ask && status === 'undetermined') {
+          const pending = pendingPermission.current;
+          pendingPermission.current = null;
+          allowed = pending ? await pending : await restAlerts.requestPermission();
+        }
+      } catch { /* El contador funciona sin avisos. */ }
       if (activeRef.current !== next) return;
       if (allowed) {
         try {
-          notificationId = await Notifications.scheduleNotificationAsync({
-            content: {
-              title: 'Descanso terminado',
-              body: 'Ya podés continuar con tu entrenamiento.',
-              data: { kind: 'rest-timer', sessionId: next.sessionId, dayId: next.dayId },
-              ...(Platform.OS === 'android' ? { channelId: 'rest-timer' } : {}),
-            },
-            trigger: {
-              type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-              seconds: Math.max(1, Math.ceil((next.expiresAt - Date.now()) / 1000)),
-              ...(Platform.OS === 'android' ? { channelId: 'rest-timer' } : {}),
-            },
+          notificationId = await restAlerts.schedule({
+            sessionId: next.sessionId,
+            dayId: next.dayId,
+            fireAt: next.expiresAt,
           });
           setNotificationsAllowed(true);
           setPermissionMessage(null);
         } catch {
           setNotificationsAllowed(false);
-          setPermissionMessage('El aviso en segundo plano no está disponible. El contador sigue funcionando mientras la app está abierta.');
+          setPermissionMessage(Platform.OS === 'web'
+            ? 'El aviso del navegador no está disponible. El contador sigue en esta pestaña.'
+            : 'El aviso en segundo plano no está disponible. El contador sigue funcionando mientras la app está abierta.');
         }
       } else {
         setNotificationsAllowed(false);
-        setPermissionMessage('Permití las notificaciones para recibir el aviso con la app en segundo plano.');
+        setPermissionMessage(Platform.OS === 'web'
+          ? 'Activá los avisos del navegador para enterarte cuando termine el descanso. Con la pestaña en segundo plano pueden atrasarse, y si cerrás el navegador no hay aviso.'
+          : 'Permití las notificaciones para recibir el aviso con la app en segundo plano.');
       }
 
       const persisted = { ...next, notificationId };
       scheduledId.current = notificationId;
-      await setSetting(db, ACTIVE_KEY, JSON.stringify(persisted));
+      await settings.set(ACTIVE_KEY, JSON.stringify(persisted));
       if (activeRef.current === next) publishTimer(persisted);
     },
-    [cancelNotification, db, publishTimer]
+    [publishTimer, settings]
   );
 
   useEffect(() => {
     let mounted = true;
     void serialize(async () => {
       try {
-        const [enabledValue, durationValue, rawTimer, permissions] = await Promise.all([
-          getSetting(db, ENABLED_KEY),
-          getSetting(db, DURATION_KEY),
-          getSetting(db, ACTIVE_KEY),
-          Notifications.getPermissionsAsync().catch(() => ({ granted: false })),
+        const [enabledValue, durationValue, rawTimer, permission] = await Promise.all([
+          settings.get(ENABLED_KEY),
+          settings.get(DURATION_KEY),
+          settings.get(ACTIVE_KEY),
+          restAlerts.permission().catch(() => 'denied' as const),
         ]);
+        const asked = await settings.get(ASKED_KEY);
+        askedRef.current = asked === 'true';
         if (!mounted) return;
         enabledRef.current = enabledValue !== 'false';
         setEnabledState(enabledRef.current);
@@ -163,47 +139,34 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
           durationRef.current = parsedDuration;
           setDurationState(parsedDuration);
         }
-        setNotificationsAllowed(permissions.granted);
-        const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
+        setNotificationsAllowed(permission === 'granted');
+        const listed = await restAlerts.listScheduled().catch(() => []);
         let parsed: RestTimer | null = null;
-        try { parsed = rawTimer ? JSON.parse(rawTimer) : null; } catch { /* Invalid saved timer. */ }
-        const origin = parsed && await db.getFirstAsync<{ completed: number; status: string }>(
-          'SELECT ss.completed, s.status FROM sessions s JOIN session_exercises se ON se.session_id = s.id JOIN session_sets ss ON ss.session_exercise_id = se.id WHERE s.id = ? AND se.source_exercise_id = ? AND ss.set_index = ?',
-          parsed.sessionId, parsed.exerciseId, parsed.setIndex ?? -1
-        );
-        const valid = parsed && enabledRef.current && Number.isFinite(parsed.expiresAt) && parsed.expiresAt > Date.now() && origin?.status === 'open' && origin.completed;
-        for (const notification of scheduled) {
-          if (notification.content.data?.kind === 'rest-timer' && (!valid || notification.identifier !== parsed?.notificationId)) {
-            await cancelNotification(notification.identifier);
-          }
+        try { parsed = rawTimer ? JSON.parse(rawTimer) as RestTimer : null; } catch { /* Temporizador inválido. */ }
+        const origin = parsed
+          ? await gym.getSetState(parsed.sessionId, parsed.exerciseId, parsed.setIndex ?? -1)
+          : null;
+        const valid = Boolean(parsed && enabledRef.current && Number.isFinite(parsed.expiresAt) && parsed.expiresAt > Date.now() && origin?.status === 'open' && origin.completed);
+        for (const notification of listed) {
+          if (!valid || notification.id !== parsed?.notificationId) await restAlerts.cancel(notification.id);
         }
         if (!valid || !parsed) {
-          await setSetting(db, ACTIVE_KEY, '');
+          await settings.set(ACTIVE_KEY, '');
           return;
         }
         let notificationId = parsed.notificationId ?? null;
-        if (permissions.granted) {
-          await ensureRestChannel();
-
-          const stillScheduled = scheduled.some((item) => item.identifier === notificationId);
+        if (permission === 'granted') {
+          const stillScheduled = listed.some((item) => item.id === notificationId);
           if (!stillScheduled) {
-            notificationId = await Notifications.scheduleNotificationAsync({
-              content: {
-                title: 'Descanso terminado',
-                body: 'Ya podés continuar con tu entrenamiento.',
-                data: { kind: 'rest-timer', sessionId: parsed.sessionId, dayId: parsed.dayId },
-                ...(Platform.OS === 'android' ? { channelId: 'rest-timer' } : {}),
-              },
-              trigger: {
-                type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-                seconds: Math.max(1, Math.ceil((parsed.expiresAt - Date.now()) / 1000)),
-                ...(Platform.OS === 'android' ? { channelId: 'rest-timer' } : {}),
-              },
+            notificationId = await restAlerts.schedule({
+              sessionId: parsed.sessionId,
+              dayId: parsed.dayId,
+              fireAt: parsed.expiresAt,
             }).catch(() => null);
           }
         }
         const restored = { ...parsed, notificationId };
-        await setSetting(db, ACTIVE_KEY, JSON.stringify(restored));
+        await settings.set(ACTIVE_KEY, JSON.stringify(restored));
         if (!mounted) return;
         scheduledId.current = notificationId;
         publishTimer(restored);
@@ -214,7 +177,7 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [cancelNotification, db, publishTimer, serialize]);
+  }, [gym, publishTimer, serialize, settings]);
 
   useEffect(() => {
     if (!activeTimer) return;
@@ -222,16 +185,15 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
       if (AppState.currentState !== 'active' || activeRef.current !== activeTimer) return;
       const left = Math.max(0, Math.ceil((activeTimer.expiresAt - Date.now()) / 1000));
       setRemainingSeconds(left);
-      if (left === 0 && didVibrate.current !== activeTimer.expiresAt) {
-        didVibrate.current = activeTimer.expiresAt;
-        Vibration.vibrate([0, 250, 200, 250]);
+      restAlerts.countdown(left > 0 ? left : null);
+      if (left === 0 && didBuzz.current !== activeTimer.expiresAt) {
+        didBuzz.current = activeTimer.expiresAt;
+        restAlerts.buzz();
         void serialize(async () => {
           if (activeRef.current !== activeTimer) return;
-          // A delivered notification must remain tappable after the countdown expires.
-          await setSetting(db, ACTIVE_KEY, '');
+          await settings.set(ACTIVE_KEY, '');
           publishTimer(null);
         }).catch(() => setPermissionMessage('No se pudo guardar el fin del descanso.'));
-
       }
     };
     tick();
@@ -243,7 +205,7 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [activeTimer, db, publishTimer, serialize]);
+  }, [activeTimer, publishTimer, serialize, settings]);
 
   const setEnabled = useCallback(
     (value: boolean) => {
@@ -251,11 +213,11 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
       setEnabledState(value);
       if (!value) publishTimer(null);
       return serialize(async () => {
-        await setSetting(db, ENABLED_KEY, String(value));
+        await settings.set(ENABLED_KEY, String(value));
         if (!value) await replaceTimer(null, false);
       });
     },
-    [db, publishTimer, replaceTimer, serialize]
+    [publishTimer, replaceTimer, serialize, settings]
   );
 
   const setDurationSeconds = useCallback(
@@ -266,14 +228,19 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
         }
         durationRef.current = seconds;
         setDurationState(seconds);
-        await setSetting(db, DURATION_KEY, String(seconds));
+        await settings.set(DURATION_KEY, String(seconds));
       }),
-    [db, serialize]
+    [serialize, settings]
   );
 
   const startRest = useCallback(
     (sessionId: number, dayId: number, exerciseId: number, setIndex: number) => {
       if (!enabledRef.current) return Promise.resolve();
+      if (Platform.OS === 'web' && !askedRef.current) {
+        askedRef.current = true;
+        pendingPermission.current = restAlerts.requestPermission();
+        void settings.set(ASKED_KEY, 'true');
+      }
       const next: RestTimer = {
         sessionId,
         dayId,
@@ -285,7 +252,7 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
       publishTimer(next);
       return serialize(() => replaceTimer(next, true));
     },
-    [publishTimer, replaceTimer, serialize]
+    [publishTimer, replaceTimer, serialize, settings]
   );
 
   const extendRest = useCallback(
@@ -310,6 +277,19 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
     [publishTimer, replaceTimer, serialize]
   );
 
+  const requestNotificationPermission = useCallback(
+    () => serialize(async () => {
+      askedRef.current = true;
+      await settings.set(ASKED_KEY, 'true');
+      const granted = await restAlerts.requestPermission();
+      setNotificationsAllowed(granted);
+      setPermissionMessage(granted
+        ? null
+        : 'Habilitá las notificaciones en la configuración del sitio del navegador.');
+    }),
+    [serialize, settings]
+  );
+
   return (
     <RestTimerContext.Provider
       value={{
@@ -324,6 +304,7 @@ export function RestTimerProvider({ children }: { children: ReactNode }) {
         startRest,
         extendRest,
         skipRest,
+        requestNotificationPermission,
       }}>
       {children}
     </RestTimerContext.Provider>

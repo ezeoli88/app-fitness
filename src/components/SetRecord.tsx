@@ -64,6 +64,7 @@ export function SetRecord({
         placeholder={onToggle ? 'kg' : 'Sin dato'}
         placeholderTextColor={colors.muted}
         keyboardType="decimal-pad"
+        inputMode="decimal"
         returnKeyType="done"
         accessibilityLabel={`Peso de la serie ${index + 1}, en kilogramos`}
         style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
@@ -77,6 +78,7 @@ export function SetRecord({
         placeholder={onToggle ? 'reps' : 'Sin dato'}
         placeholderTextColor={colors.muted}
         keyboardType="number-pad"
+        inputMode="numeric"
         returnKeyType="done"
         accessibilityLabel={`Repeticiones realizadas en la serie ${index + 1}`}
         style={[styles.input, styles.repsInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}

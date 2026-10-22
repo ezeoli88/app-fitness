@@ -1,0 +1,21 @@
+{
+  "name": "rutina-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run && vitest run --config vitest.node.config.ts",
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "dependencies": {
+    "hono": "^4.10.1",
+    "jose": "^6.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.6",
+    "@cloudflare/workers-types": "^5.20261022.1",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.152.0"
+  }
+}

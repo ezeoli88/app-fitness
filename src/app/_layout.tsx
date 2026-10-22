@@ -1,30 +1,23 @@
-import { Stack, useRouter, type ErrorBoundaryProps } from 'expo-router';
-import * as Notifications from 'expo-notifications';
-import * as SQLite from 'expo-sqlite';
-import { SQLiteProvider, useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
-import * as SplashScreen from 'expo-splash-screen';
+import { Stack, usePathname, useRouter, type ErrorBoundaryProps } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ThemeProvider, useTheme } from '@/ThemeContext';
-import { useLastNotificationResponse } from 'expo-notifications';
+import { ConfirmHost } from '@/components/ConfirmHost';
+import { SessionExpiredBanner } from '@/components/SessionExpiredBanner';
+import { useLayout } from '@/components/useLayout';
+import { DataProvider, useData } from '@/data/DataProvider';
 import { GymProvider, useGym } from '@/db/GymContext';
-import { getSetting, setSetting } from '@/db/settings';
 import { RestTimerProvider, useRestTimer } from '@/db/RestTimerContext';
-import { migrate, DATABASE_VERSION } from '@/db/schema';
-import { seedCatalog } from '@/db/seed';
-import catalogJson from '@/data/routines.json';
-import type { RoutineJson } from '@/domain/types';
+import { hideSplash } from '@/platform/splash';
+import { restAlerts } from '@/platform/restAlerts';
+import { ThemeProvider, useTheme } from '@/ThemeContext';
 
-SplashScreen.preventAutoHideAsync();
-
-const catalog = catalogJson as RoutineJson[];
-const BACKUP_NAME = 'rutina-antes-de-migrar-v4.db';
+import '@/platform/splash';
 
 export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
-  useEffect(() => { void SplashScreen.hideAsync(); }, []);
+  useEffect(() => { hideSplash(); }, []);
   return (
     <View style={[styles.recovery, { backgroundColor: '#080d14' }]}>
       <Text style={[styles.recoveryTitle, { color: '#ffffff' }]}>No pudimos iniciar Rutina</Text>
@@ -36,36 +29,25 @@ export function ErrorBoundary({ retry }: ErrorBoundaryProps) {
   );
 }
 
-async function backUpBeforeMigration(db: SQLiteDatabase): Promise<void> {
-  const result = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-  if (!result || result.user_version >= DATABASE_VERSION) return;
-  const tables = await db.getAllAsync<{ name: string }>(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' LIMIT 1"
-  );
-  if (tables.length === 0) return;
-  const backup = await SQLite.openDatabaseAsync(BACKUP_NAME);
-  try {
-    await SQLite.backupDatabaseAsync({
-      sourceDatabase: db,
-      destDatabase: backup,
-    });
-  } finally {
-    await backup.closeAsync();
-  }
-}
-
 function RestTimerBanner() {
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  const { wide } = useLayout();
   const { activeTimer, remainingSeconds, extendRest, skipRest } = useRestTimer();
   const { colors } = useTheme();
-  if (!activeTimer) return null;
+  const onSession = /^\/session\/[^/]+$/.test(pathname);
+  if (!activeTimer || (wide && onSession)) return null;
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
 
   return (
     <View
       accessibilityLiveRegion="polite"
-      style={[styles.timerBanner, { bottom: Math.max(14, insets.bottom), backgroundColor: colors.card, borderColor: colors.lastBorder }]}>
+      style={[
+        styles.timerBanner,
+        wide ? styles.timerWide : null,
+        { bottom: Math.max(14, insets.bottom), backgroundColor: colors.card, borderColor: colors.lastBorder },
+      ]}>
       <View style={styles.timerText}>
         <Text style={[styles.timerKicker, { color: colors.muted }]}>DESCANSO</Text>
         <Text style={[styles.timerValue, { color: colors.text }]}>
@@ -83,34 +65,28 @@ function RestTimerBanner() {
 }
 
 function RestNotificationNavigation() {
-  const response = useLastNotificationResponse();
   const router = useRouter();
   const gym = useGym();
-  const db = useSQLiteContext();
+  const { settings } = useData();
   const lastHandled = useRef<string | null>(null);
-  const { colors } = useTheme();
 
-  useEffect(() => {
-    if (!response || response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
-    const request = response.notification.request;
-    const data = request.content.data;
-    if (data?.kind !== 'rest-timer' || lastHandled.current === request.identifier) return;
-    lastHandled.current = request.identifier;
+  useEffect(() => restAlerts.onOpen((data) => {
+    if (lastHandled.current === data.id) return;
+    lastHandled.current = data.id;
     void (async () => {
       try {
-        const previous = await getSetting(db, 'lastConsumedRestNotification');
-        if (previous === request.identifier) return;
-        const details = await gym.getSessionDetails(Number(data.sessionId));
+        const previous = await settings.get('lastConsumedRestNotification');
+        if (previous === data.id) return;
+        const details = await gym.getSessionDetails(data.sessionId);
         if (!details) return;
         if (details.status === 'open') router.push(`/session/${details.dayId}`);
         else router.push(`/session-detail/${details.id}`);
-        await setSetting(db, 'lastConsumedRestNotification', request.identifier);
+        await settings.set('lastConsumedRestNotification', data.id);
       } catch {
-        // Keep the notification tappable on the next app open if the database is unavailable.
         lastHandled.current = null;
       }
     })();
-  }, [db, response, router, gym]);
+  }), [gym, router, settings]);
 
   return null;
 }
@@ -130,18 +106,17 @@ function DatabaseRecovery({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function ThemedShell({ error, onRetry }: { error: string | null; onRetry: () => void }) {
+function ThemedShell() {
   const { theme, colors } = useTheme();
+  const { databaseError, retry } = useData();
 
-  useEffect(() => {
-    void SplashScreen.hideAsync();
-  }, []);
+  useEffect(() => { hideSplash(); }, []);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-      {error ? (
-        <DatabaseRecovery onRetry={onRetry} />
+      {databaseError ? (
+        <DatabaseRecovery onRetry={retry} />
       ) : (
         <RestTimerProvider>
           <GymProvider>
@@ -151,9 +126,18 @@ function ThemedShell({ error, onRetry }: { error: string | null; onRetry: () => 
                 headerShown: false,
                 contentStyle: { backgroundColor: colors.bg },
                 animation: 'fade',
-              }}
-            />
+              }}>
+              <Stack.Screen name="index" options={{ title: 'Entrenar' }} />
+              <Stack.Screen name="routines" options={{ title: 'Rutinas' }} />
+              <Stack.Screen name="rest-settings" options={{ title: 'Descanso' }} />
+              <Stack.Screen name="history" options={{ title: 'Historial' }} />
+              <Stack.Screen name="session/[dayId]" options={{ title: 'Sesión' }} />
+              <Stack.Screen name="session-detail/[sessionId]" options={{ title: 'Detalle' }} />
+              <Stack.Screen name="routine-editor/[routineId]" options={{ title: 'Editor' }} />
+            </Stack>
             <RestTimerBanner />
+            <ConfirmHost />
+            <SessionExpiredBanner />
           </GymProvider>
         </RestTimerProvider>
       )}
@@ -162,32 +146,12 @@ function ThemedShell({ error, onRetry }: { error: string | null; onRetry: () => 
 }
 
 export default function RootLayout() {
-  const [databaseError, setDatabaseError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState(0);
-
-  const onInit = useCallback(async (db: SQLiteDatabase) => {
-    try {
-      await backUpBeforeMigration(db);
-      await db.execAsync('PRAGMA foreign_keys = ON');
-      await migrate(db);
-      await seedCatalog(db, catalog);
-      setDatabaseError(null);
-    } catch (error) {
-      setDatabaseError(error instanceof Error ? error.message : 'Falló la inicialización de SQLite.');
-    }
-  }, []);
-
-  const retry = useCallback(() => {
-    setDatabaseError(null);
-    setAttempt((value) => value + 1);
-  }, []);
-
   return (
-    <SQLiteProvider key={attempt} databaseName="rutina.db" onInit={onInit}>
+    <DataProvider>
       <ThemeProvider>
-        <ThemedShell error={databaseError} onRetry={retry} />
+        <ThemedShell />
       </ThemeProvider>
-    </SQLiteProvider>
+    </DataProvider>
   );
 }
 
@@ -207,6 +171,7 @@ const styles = StyleSheet.create({
     gap: 20,
     elevation: 8,
   },
+  timerWide: { left: undefined, right: 24, width: 360 },
   timerText: { flex: 1 },
   timerKicker: { fontSize: 10, letterSpacing: 1.5, fontWeight: '700' },
   timerValue: { fontSize: 20, fontWeight: '700', marginTop: 1 },

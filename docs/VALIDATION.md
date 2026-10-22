@@ -1,3 +1,18 @@
+# Validación de Rutina
+
+La sección siguiente conserva la pasada del 26 de septiembre de 2026 en el emulador. La web y el Worker se agregan en octubre de 2026. El emulador Android no se volvió a ejecutar en esta entrega.
+
+## Web y Worker — octubre de 2026
+
+- Jest de la app: 47 pruebas, 14 suites. Incluye el contrato del repositorio sobre node:sqlite, el cliente HTTP y el temporizador.
+- `tsc --noEmit` en la raíz y en `worker/`.
+- Vitest del Worker: 13 pruebas sobre D1 (contrato, `rev` de los triggers y la API) y 4 de Access con llaves locales.
+- `expo export -p web` y revisión de que el bundle no arrastra `expo-sqlite`, `expo-notifications` ni `expo-splash-screen`.
+- `wrangler deploy --dry-run --env=""`, sin publicar.
+- Playwright contra el Worker local: el flujo de entrenar, corregir el historial y archivar pasó en 1440×900 y en 390×844.
+
+El checklist del emulador de abajo sigue pendiente de una pasada humana sobre esta rama. La sync con Android no forma parte de esta validación.
+
 # Validación de Rutina — 26 de septiembre de 2026
 
 ## Comprobaciones automáticas

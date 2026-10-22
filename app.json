@@ -21,8 +21,16 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "name": "Rutina",
+      "shortName": "Rutina",
+      "lang": "es",
+      "themeColor": "#070B12",
+      "backgroundColor": "#070B12",
+      "description": "Entrenamiento personal",
+      "display": "standalone",
+      "startUrl": "/"
     },
     "plugins": [
       "expo-router",

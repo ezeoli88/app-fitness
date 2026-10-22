@@ -1,6 +1,9 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+
+import { WebAccount } from '@/components/WebAccount';
+import { useLayout } from '@/components/useLayout';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useRestTimer } from '@/db/RestTimerContext';
@@ -15,7 +18,9 @@ function durationLabel(seconds: number): string {
 export default function RestSettingsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const { maxWidth } = useLayout();
   const rest = useRestTimer();
+  const web = Platform.OS === 'web';
   const [custom, setCustom] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -40,7 +45,7 @@ export default function RestSettingsScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[styles.content, { maxWidth, width: '100%', alignSelf: 'center' }]} keyboardShouldPersistTaps="handled">
         <Pressable onPress={() => router.back()} accessibilityRole="button">
           <Text style={[styles.back, { color: colors.muted }]}>← Inicio</Text>
         </Pressable>
@@ -87,6 +92,7 @@ export default function RestSettingsScreen() {
             placeholder="Ej.: 90"
             placeholderTextColor={colors.muted}
             keyboardType="number-pad"
+            inputMode="numeric"
             accessibilityLabel="Duración personalizada en segundos"
             style={[styles.input, { color: colors.text, backgroundColor: colors.card, borderColor: colors.border }]}
           />
@@ -95,10 +101,15 @@ export default function RestSettingsScreen() {
           </Pressable>
         </View>
 
+        {web ? (
+          <Pressable onPress={() => void rest.requestNotificationPermission()} accessibilityRole="button" style={[styles.apply, styles.enable, { backgroundColor: colors.chalk }]}>
+            <Text style={[styles.applyText, { color: colors.bg }]}>Activar avisos</Text>
+          </Pressable>
+        ) : null}
         {rest.permissionMessage ? (
           <View style={[styles.permissionCard, { borderColor: colors.border }]}>
             <Text style={[styles.permission, { color: colors.muted }]}>{rest.permissionMessage}</Text>
-            {rest.notificationsAllowed === false ? (
+            {!web && rest.notificationsAllowed === false ? (
               <Pressable onPress={() => void Linking.openSettings()} accessibilityRole="button">
                 <Text style={[styles.settingsLink, { color: colors.brass }]}>Abrir ajustes del dispositivo</Text>
               </Pressable>
@@ -106,11 +117,14 @@ export default function RestSettingsScreen() {
           </View>
         ) : (
           <Text style={[styles.note, styles.permissionHint, { color: colors.muted }]}>
-            {rest.notificationsAllowed
-              ? 'Los avisos están habilitados para cuando cambiás de app o bloqueás la pantalla.'
-              : 'Al iniciar el primer descanso te pediremos permiso para enviarte avisos. Podés habilitarlos en los ajustes del dispositivo.'}
+            {web
+              ? 'En el navegador el aviso suena en esta pestaña. Si la dejás en segundo plano puede atrasarse, y si cerrás el navegador no hay aviso.'
+              : rest.notificationsAllowed
+                ? 'Los avisos están habilitados para cuando cambiás de app o bloqueás la pantalla.'
+                : 'Al iniciar el primer descanso te pediremos permiso para enviarte avisos. Podés habilitarlos en los ajustes del dispositivo.'}
           </Text>
         )}
+        <WebAccount />
         {rest.activeTimer ? (
           <Pressable onPress={() => void rest.skipRest()} accessibilityRole="button" style={styles.skip}>
             <Text style={[styles.settingsLink, { color: colors.brass }]}>Omitir el descanso actual</Text>
@@ -141,6 +155,7 @@ const styles = StyleSheet.create({
   customRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   input: { flex: 1, height: 46, borderWidth: 1, borderRadius: 11, paddingHorizontal: 12, fontSize: 15 },
   apply: { borderRadius: 11, paddingVertical: 13, paddingHorizontal: 17 },
+  enable: { alignSelf: 'flex-start', marginTop: 22 },
   applyText: { fontSize: 14, fontWeight: '700' },
   permissionCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginTop: 24 },
   permission: { fontSize: 13, lineHeight: 19 },

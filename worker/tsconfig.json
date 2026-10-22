@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": false,
+    "paths": {
+      "@/*": ["../src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "env.d.ts", "../src/db/**/*.ts", "../src/domain/**/*.ts", "../src/data/routines.json"],
+  "exclude": ["../src/**/*.test.ts", "../src/**/*.test.tsx"]
+}

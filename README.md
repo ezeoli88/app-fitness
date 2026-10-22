@@ -1,6 +1,6 @@
 # Rutina
 
-Aplicación personal de entrenamiento, local y sin cuentas. Expo SDK 57, React Native, Expo Router y SQLite. Android es la plataforma principal.
+Aplicación personal de entrenamiento. En Android guarda todo en SQLite y funciona sin red. En la web, el mismo código corre como un sitio estático detrás de un Worker de Cloudflare: la base es D1 y el acceso lo resuelve Cloudflare Access. No hay registro ni sesión propia.
 
 ## Funciones
 
@@ -49,19 +49,49 @@ El APK local usa la firma de desarrollo del proyecto; no está preparado para pu
 
 ## Datos y recuperación
 
-SQLite se almacena en `rutina.db` dentro del almacenamiento privado de la app. La migración a v4 conserva identificadores, fechas, preferencias y progreso. Antes de migrar una instalación existente se crea `rutina-antes-de-migrar-v4.db`. Si falla la migración, se ofrece reintentar y no se borra la base.
+SQLite se almacena en `rutina.db` dentro del almacenamiento privado de la app. La migración a v5 agrega `uid` y `last_used_at` y conserva identificadores, fechas, preferencias y progreso. Antes de migrar una instalación existente se crea `rutina-antes-de-migrar-v5.db`. Si ya hay dos sesiones abiertas para el mismo día, la migración no crea el índice único para no dejar la instalación inutilizable. Si falla la migración, se ofrece reintentar y no se borra la base.
 
 Las sesiones antiguas se reconstruyen con los objetivos disponibles al migrar; peso y repeticiones reales quedan sin dato. Se conservan las marcas de ejercicios retirados aunque su nombre u objetivo original ya no esté disponible.
 
 Desinstalar elimina el almacenamiento local de Android. Para actualizar conservando datos, instalar con `adb install -r` y evitar desinstalar o borrar el almacenamiento. La copia previa a migrar también es local y no sustituye un respaldo externo.
+
+## Web local
+
+La web de desarrollo habla con un Worker en `http://127.0.0.1:8787`. Ese proceso acepta el bypass de Access solo si el host es `localhost` o `127.0.0.1`. En cualquier otro host el bypass se ignora.
+
+```sh
+cp worker/.dev.vars.example worker/.dev.vars
+cd worker && npm ci
+npx wrangler d1 migrations apply rutina-db --local
+cd .. && npm run export:web
+cd worker && npx wrangler dev --port 8787 --ip 127.0.0.1
+```
+
+Abrí `http://127.0.0.1:8787`. El export de producción no define `EXPO_PUBLIC_API_URL`: la app usa `/api` en el mismo origen. Para Metro (`npm run web`) apuntá el cliente al Worker:
+
+```sh
+EXPO_PUBLIC_API_URL=http://127.0.0.1:8787/api npm run web
+```
+
+En ese caso el Worker responde CORS solo a `http://localhost:8081` y `http://127.0.0.1:8081`.
+
+## Cloudflare
+
+Todavía no hay una base ni un equipo de Access creados en esta rama. Los identificadores de `worker/wrangler.toml` son placeholders. El paso a paso para crear las dos D1, el equipo de Access, los secretos y el primer deploy está en [docs/cloudflare-access.md](docs/cloudflare-access.md).
+
+La sincronización con Android queda para una fase posterior. Esta entrega no agrega endpoints de sync.
 
 ## Verificación
 
 ```sh
 node node_modules/jest/bin/jest.js --runInBand --watchAll=false
 node node_modules/typescript/bin/tsc --noEmit
+npm run export:web
+cd worker && npm test && npm run typecheck && npx wrangler deploy --dry-run --env=""
 git diff --check
 ```
+
+`wrangler deploy --dry-run` necesita el `dist/` del export y `--env=""` porque el archivo declara también el ambiente `preview`. No publica nada.
 
 Las pruebas incluyen SQLite real mediante node:sqlite, migraciones y rollback, snapshots, escrituras concurrentes, paginación de más de 50 sesiones, sugerencias y reconciliación del temporizador con notificaciones simuladas.
 

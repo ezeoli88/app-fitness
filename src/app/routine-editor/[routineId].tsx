@@ -1,7 +1,10 @@
 import { usePreventRemove } from 'expo-router/build/react-navigation/core/usePreventRemove';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { useLayout } from '@/components/useLayout';
+import { confirm } from '@/platform/confirm';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useGym } from '@/db/GymContext';
@@ -26,6 +29,7 @@ export default function RoutineEditorScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const { colors } = useTheme();
+  const { wide, maxWidth } = useLayout();
   const [draft, setDraft] = useState<RoutineDraft>(blankRoutine);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(!isNew);
@@ -55,11 +59,25 @@ export default function RoutineEditorScreen() {
   }, [gym, isNew, routineId]);
 
   usePreventRemove(dirty && !saving, ({ data }) => {
-    Alert.alert('Cambios sin guardar', 'Podés guardar la rutina antes de salir.', [
-      { text: 'Seguir editando', style: 'cancel' },
-      { text: 'Descartar cambios', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
-    ]);
+    confirm({
+      title: 'Cambios sin guardar',
+      message: 'Podés guardar la rutina antes de salir.',
+      actions: [
+        { text: 'Seguir editando', style: 'cancel' },
+        { text: 'Descartar cambios', style: 'destructive', onPress: () => navigation.dispatch(data.action) },
+      ],
+    });
   });
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !dirty || saving || typeof window === 'undefined') return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty, saving]);
 
   const change = (update: (current: RoutineDraft) => RoutineDraft) => {
     setDraft(update);
@@ -110,7 +128,7 @@ export default function RoutineEditorScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[styles.content, { maxWidth, width: '100%', alignSelf: 'center' }]} keyboardShouldPersistTaps="handled">
         <Pressable onPress={() => router.back()} accessibilityRole="button">
           <Text style={[styles.back, { color: colors.muted }]}>← Rutinas</Text>
         </Pressable>
@@ -149,8 +167,9 @@ export default function RoutineEditorScreen() {
               </Pressable>
             </View>
 
+            <View style={wide ? styles.dayGrid : undefined}>
             {draft.days.map((day, dayIndex) => (
-              <View key={day.id ?? `new-day-${dayIndex}`} style={[styles.dayCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View key={day.id ?? `new-day-${dayIndex}`} style={[styles.dayCard, wide ? styles.dayWide : null, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <View style={styles.dayHeader}>
                   <TextInput
                     value={day.title}
@@ -204,6 +223,7 @@ export default function RoutineEditorScreen() {
                               : item),
                           }))}
                           keyboardType="number-pad"
+                          inputMode="numeric"
                           accessibilityLabel={`Series previstas para ${exercise.name || 'el ejercicio'}`}
                           style={[styles.numericInput, { color: colors.text, borderColor: colors.border }]}
                         />
@@ -219,6 +239,7 @@ export default function RoutineEditorScreen() {
                               : item),
                           }))}
                           keyboardType="number-pad"
+                          inputMode="numeric"
                           accessibilityLabel={`Repeticiones previstas para ${exercise.name || 'el ejercicio'}`}
                           style={[styles.numericInput, { color: colors.text, borderColor: colors.border }]}
                         />
@@ -257,6 +278,7 @@ export default function RoutineEditorScreen() {
                 </Pressable>
               </View>
             ))}
+            </View>
 
             {error ? <Text accessibilityRole="alert" style={[styles.error, { color: colors.brass }]}>{error}</Text> : null}
             <Pressable onPress={() => void save()} disabled={saving} accessibilityRole="button" style={[styles.save, { backgroundColor: colors.chalk }]}>
@@ -281,7 +303,9 @@ const styles = StyleSheet.create({
   section: { fontSize: 11, letterSpacing: 1.8, textTransform: 'uppercase' },
   link: { fontSize: 14, fontWeight: '700', paddingHorizontal: 4, paddingVertical: 6 },
   disabled: { opacity: 0.3 },
+  dayGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   dayCard: { borderWidth: 1, borderRadius: 16, padding: 12, marginBottom: 14 },
+  dayWide: { width: '48%' },
   dayHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dayTitle: { flex: 1, fontSize: 16, fontWeight: '600', borderBottomWidth: 1, paddingVertical: 8 },
   orderActions: { flexDirection: 'row', alignItems: 'center', gap: 5 },

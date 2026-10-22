@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { DayCard } from '@/components/DayCard';
 import { HistoryList } from '@/components/HistoryList';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { useLayout } from '@/components/useLayout';
 import { useGym } from '@/db/GymContext';
 import { countCompletedExercises, countCompletedSets, totalSets } from '@/domain/session';
 import { nextTrainingDay, type Routine } from '@/domain/routine';
@@ -19,6 +20,7 @@ export default function HomeScreen() {
   const gym = useGym();
   const router = useRouter();
   const { colors } = useTheme();
+  const { wide, maxWidth } = useLayout();
   const [days, setDays] = useState<DayState[]>([]);
   const [last, setLast] = useState<CompletedSession | null>(null);
   const [recent, setRecent] = useState<CompletedSession[]>([]);
@@ -26,26 +28,12 @@ export default function HomeScreen() {
   const [routine, setRoutine] = useState<Routine | null>(null);
 
   const load = useCallback(async () => {
-    const [listed, completed, recentSessions, open, activeRoutine] = await Promise.all([
-      gym.listDays(),
-      gym.lastCompleted(),
-      gym.listCompleted(3),
-      gym.listOpenSessions(),
-      gym.getActiveRoutine(),
-    ]);
-    const next: DayState[] = [];
-    for (const day of listed) {
-      const [exercises, current] = await Promise.all([
-        gym.listExercises(day.id),
-        gym.getOpenSession(day.id),
-      ]);
-      next.push({ day, exercises, open: current });
-    }
-    setDays(next);
-    setLast(completed);
-    setRecent(recentSessions);
-    setOpenSessions(open);
-    setRoutine(activeRoutine);
+    const home = await gym.getHomeSnapshot();
+    setDays(home.days);
+    setLast(home.lastCompleted);
+    setRecent(home.recent);
+    setOpenSessions(home.openSessions);
+    setRoutine(home.routine);
   }, [gym]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -55,9 +43,75 @@ export default function HomeScreen() {
   const visibleOpenIds = new Set(days.filter((item) => item.open).map((item) => item.open!.id));
   const archivedDaySession = openSessions.find((item) => !visibleOpenIds.has(item.id));
 
+  const dayCards = days.map((item, index) => {
+    const doneSets = item.open ? countCompletedSets(item.open.completedSets) : 0;
+    const doneExercises = item.open
+      ? countCompletedExercises(item.exercises, item.open.completedSets)
+      : 0;
+    const isLast = last?.dayId === item.day.id && !item.open;
+    return (
+      <DayCard
+        key={item.day.id}
+        dayNumber={index + 1}
+        title={item.day.title}
+        totalExercises={item.exercises.length}
+        totalSetsCount={totalSets(item.exercises)}
+        doneExercises={doneExercises}
+        doneSets={doneSets}
+        isOpen={Boolean(item.open)}
+        isLast={isLast}
+        isNext={nextDay?.id === item.day.id}
+        lastCompletedAt={isLast ? last?.completedAt ?? null : null}
+        onPress={() => router.push(`/session/${item.day.id}`)}
+      />
+    );
+  });
+
+  const resumeCard = resumableSession ? (
+    <Pressable
+      onPress={() => router.push(`/session/${resumableSession.dayId}`)}
+      accessibilityRole="button"
+      style={[styles.resume, { backgroundColor: colors.card, borderColor: colors.lastBorder }]}>
+      <View style={styles.resumeCopy}>
+        <Text style={[styles.resumeKicker, { color: colors.brass }]}>CONTINUAR ENTRENAMIENTO</Text>
+        <Text style={[styles.resumeTitle, { color: colors.text }]}>{resumableSession.dayTitle}</Text>
+        <Text style={[styles.resumeSubtitle, { color: colors.muted }]}>{resumableSession.routineTitle}</Text>
+      </View>
+      <Text style={[styles.arrow, { color: colors.brass }]}>→</Text>
+    </Pressable>
+  ) : null;
+
+  const archivedCard = archivedDaySession ? (
+    <Pressable
+      onPress={() => router.push(`/session/${archivedDaySession.dayId}`)}
+      accessibilityRole="button"
+      style={[styles.archivedOpen, { borderColor: colors.border }]}>
+      <Text style={[styles.archivedOpenText, { color: colors.brass }]}>
+        También podés continuar «{archivedDaySession.dayTitle}» de «{archivedDaySession.routineTitle}».
+      </Text>
+    </Pressable>
+  ) : null;
+
+  const historyBlock = (
+    <>
+      <View style={styles.historyHeading}>
+        <Text style={[styles.section, { color: colors.muted }]}>Sesiones</Text>
+        {recent.length > 0 ? (
+          <Pressable onPress={() => router.push('/history')} accessibilityRole="button">
+            <Text style={[styles.historyLink, { color: colors.brass }]}>Ver historial</Text>
+          </Pressable>
+        ) : null}
+      </View>
+      <HistoryList
+        sessions={recent}
+        onPressSession={(session) => router.push(`/session-detail/${session.id}`)}
+      />
+    </>
+  );
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { maxWidth, width: '100%', alignSelf: 'center' }]}>
         <View style={styles.top}>
           <View style={styles.titles}>
             <Text style={[styles.kicker, { color: colors.muted }]}>{formatTodayHeader()}</Text>
@@ -74,68 +128,23 @@ export default function HomeScreen() {
           <ThemeToggle />
         </View>
 
-        {resumableSession ? (
-          <Pressable
-            onPress={() => router.push(`/session/${resumableSession.dayId}`)}
-            accessibilityRole="button"
-            style={[styles.resume, { backgroundColor: colors.card, borderColor: colors.lastBorder }]}>
-            <View style={styles.resumeCopy}>
-              <Text style={[styles.resumeKicker, { color: colors.brass }]}>CONTINUAR ENTRENAMIENTO</Text>
-              <Text style={[styles.resumeTitle, { color: colors.text }]}>{resumableSession.dayTitle}</Text>
-              <Text style={[styles.resumeSubtitle, { color: colors.muted }]}>{resumableSession.routineTitle}</Text>
+        {wide ? (
+          <View style={styles.columns}>
+            <View style={styles.column}>{dayCards}</View>
+            <View style={styles.column}>
+              {resumeCard}
+              {archivedCard}
+              {historyBlock}
             </View>
-            <Text style={[styles.arrow, { color: colors.brass }]}>→</Text>
-          </Pressable>
-        ) : null}
-
-        {archivedDaySession ? (
-          <Pressable
-            onPress={() => router.push(`/session/${archivedDaySession.dayId}`)}
-            accessibilityRole="button"
-            style={[styles.archivedOpen, { borderColor: colors.border }]}>
-            <Text style={[styles.archivedOpenText, { color: colors.brass }]}>
-              También podés continuar «{archivedDaySession.dayTitle}» de «{archivedDaySession.routineTitle}».
-            </Text>
-          </Pressable>
-        ) : null}
-
-        {days.map((item, index) => {
-          const doneSets = item.open ? countCompletedSets(item.open.completedSets) : 0;
-          const doneExercises = item.open
-            ? countCompletedExercises(item.exercises, item.open.completedSets)
-            : 0;
-          const isLast = last?.dayId === item.day.id && !item.open;
-
-          return (
-            <DayCard
-              key={item.day.id}
-              dayNumber={index + 1}
-              title={item.day.title}
-              totalExercises={item.exercises.length}
-              totalSetsCount={totalSets(item.exercises)}
-              doneExercises={doneExercises}
-              doneSets={doneSets}
-              isOpen={Boolean(item.open)}
-              isLast={isLast}
-              isNext={nextDay?.id === item.day.id}
-              lastCompletedAt={isLast ? last?.completedAt ?? null : null}
-              onPress={() => router.push(`/session/${item.day.id}`)}
-            />
-          );
-        })}
-
-        <View style={styles.historyHeading}>
-          <Text style={[styles.section, { color: colors.muted }]}>Sesiones</Text>
-          {recent.length > 0 ? (
-            <Pressable onPress={() => router.push('/history')} accessibilityRole="button">
-              <Text style={[styles.historyLink, { color: colors.brass }]}>Ver historial</Text>
-            </Pressable>
-          ) : null}
-        </View>
-        <HistoryList
-          sessions={recent}
-          onPressSession={(session) => router.push(`/session-detail/${session.id}`)}
-        />
+          </View>
+        ) : (
+          <>
+            {resumeCard}
+            {archivedCard}
+            {dayCards}
+            {historyBlock}
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -161,4 +170,6 @@ const styles = StyleSheet.create({
   historyHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, marginBottom: 12 },
   section: { fontSize: 11, letterSpacing: 2.2, textTransform: 'uppercase' },
   historyLink: { fontSize: 13, fontWeight: '600' },
+  columns: { flexDirection: 'row', alignItems: 'flex-start', gap: 28 },
+  column: { flex: 1, minWidth: 0 },
 });

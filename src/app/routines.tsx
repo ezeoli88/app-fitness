@@ -1,6 +1,9 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+
+import { useLayout } from '@/components/useLayout';
+import { confirm } from '@/platform/confirm';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useGym } from '@/db/GymContext';
@@ -11,6 +14,7 @@ export default function RoutinesScreen() {
   const gym = useGym();
   const router = useRouter();
   const { colors } = useTheme();
+  const { maxWidth } = useLayout();
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -25,29 +29,42 @@ export default function RoutinesScreen() {
   const pick = async (id: string) => {
     try {
       await gym.setActiveRoutine(id);
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace('/');
     } catch (error) {
-      Alert.alert('No se pudo cambiar la rutina', error instanceof Error ? error.message : 'Probá otra vez.');
+      confirm({
+        title: 'No se pudo cambiar la rutina',
+        message: error instanceof Error ? error.message : 'Probá otra vez.',
+        actions: [{ text: 'Entendido' }],
+      });
     }
   };
 
   const duplicate = async (routine: Routine) => {
     const id = await gym.duplicateRoutine(routine.id);
     if (id) router.push(`/routine-editor/${id}`);
-    else Alert.alert('Rutina no disponible', 'Actualizá la lista y probá otra vez.');
+    else confirm({ title: 'Rutina no disponible', message: 'Actualizá la lista y probá otra vez.', actions: [{ text: 'Entendido' }] });
   };
 
   const archive = (routine: Routine) => {
-    Alert.alert('Archivar rutina', `«${routine.title}» seguirá apareciendo en el historial.`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Archivar',
-        style: 'destructive',
-        onPress: () => void gym.archiveRoutine(routine.id).then(load).catch((error: unknown) =>
-          Alert.alert('No se pudo archivar', error instanceof Error ? error.message : 'Probá otra vez.')
-        ),
-      },
-    ]);
+    confirm({
+      title: 'Archivar rutina',
+      message: `«${routine.title}» seguirá apareciendo en el historial.`,
+      actions: [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Archivar',
+          style: 'destructive',
+          onPress: () => void gym.archiveRoutine(routine.id).then(load).catch((error: unknown) =>
+            confirm({
+              title: 'No se pudo archivar',
+              message: error instanceof Error ? error.message : 'Probá otra vez.',
+              actions: [{ text: 'Entendido' }],
+            })
+          ),
+        },
+      ],
+    });
   };
 
   const available = routines.filter((routine) => !routine.archivedAt);
@@ -55,7 +72,7 @@ export default function RoutinesScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { maxWidth, width: '100%', alignSelf: 'center' }]}>
         <Pressable onPress={() => router.back()} accessibilityRole="button">
           <Text style={[styles.back, { color: colors.muted }]}>← Inicio</Text>
         </Pressable>

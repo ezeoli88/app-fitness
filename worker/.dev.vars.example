@@ -1,0 +1,5 @@
+DEV_BYPASS_ACCESS=1
+OWNER_EMAIL=owner@example.com
+ACCESS_SERVICE_CLIENT_IDS=
+ACCESS_TEAM_DOMAIN=https://example.cloudflareaccess.com
+ACCESS_AUD=local-aud

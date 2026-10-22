@@ -73,10 +73,13 @@ describe('SQLite migration v3 → v4', () => {
     try {
       await migrate(db);
       await migrate(db);
-      expect((await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version).toBe(4);
+      expect((await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version).toBe(DATABASE_VERSION);
       expect(await db.getFirstAsync<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_sets'"
       )).toEqual({ name: 'session_sets' });
+      expect(await db.getFirstAsync<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'ux_sessions_one_open_per_day'"
+      )).toEqual({ name: 'ux_sessions_one_open_per_day' });
     } finally {
       close();
     }
@@ -103,7 +106,50 @@ describe('SQLite migration v3 → v4', () => {
       expect(await db.getFirstAsync<{ count: number }>(
         'SELECT COUNT(*) AS count FROM session_sets WHERE session_exercise_id IN (SELECT id FROM session_exercises WHERE session_id = 14) AND completed = 1'
       )).toEqual({ count: 1 });
-      expect((await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version).toBe(4);
+      expect((await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version).toBe(DATABASE_VERSION);
+    } finally {
+      close();
+    }
+  });
+
+  it('copies sessionLastUsed into last_used_at and skips the unique open index when duplicates already exist', async () => {
+    const { db, close } = createSqliteTestAdapter();
+    try {
+      await db.execAsync(`
+        CREATE TABLE routines (id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, level TEXT NOT NULL, sort INTEGER NOT NULL, archived_at TEXT);
+        CREATE TABLE days (id INTEGER PRIMARY KEY NOT NULL, title TEXT NOT NULL, sort INTEGER NOT NULL, routine_id TEXT NOT NULL, archived_at TEXT);
+        CREATE TABLE exercises (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, day_id INTEGER NOT NULL, name TEXT NOT NULL, sets INTEGER NOT NULL, reps INTEGER NOT NULL, sort INTEGER NOT NULL, archived_at TEXT);
+        CREATE TABLE sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, day_id INTEGER NOT NULL, started_at TEXT NOT NULL,
+          completed_at TEXT, completed_sets TEXT NOT NULL, routine_id TEXT NOT NULL, routine_title TEXT NOT NULL,
+          day_title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open'
+        );
+        CREATE TABLE session_exercises (
+          id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, session_id INTEGER NOT NULL, source_exercise_id INTEGER NOT NULL,
+          name TEXT NOT NULL, sets INTEGER NOT NULL, reps INTEGER NOT NULL, sort INTEGER NOT NULL
+        );
+        CREATE TABLE session_sets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, session_exercise_id INTEGER NOT NULL, set_index INTEGER NOT NULL,
+          completed INTEGER NOT NULL DEFAULT 0, weight_kg REAL, actual_reps INTEGER
+        );
+        CREATE TABLE settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
+        INSERT INTO routines (id, title, level, sort) VALUES ('personal', 'Mi rutina', 'personalizada', 0);
+        INSERT INTO days (id, title, sort, routine_id) VALUES (3, 'Día A', 0, 'personal');
+        INSERT INTO sessions (id, day_id, started_at, completed_at, completed_sets, routine_id, routine_title, day_title, status)
+          VALUES (1, 3, '2026-03-01T10:00:00.000Z', NULL, '{}', 'personal', 'Mi rutina', 'Día A', 'open');
+        INSERT INTO sessions (id, day_id, started_at, completed_at, completed_sets, routine_id, routine_title, day_title, status)
+          VALUES (2, 3, '2026-03-02T10:00:00.000Z', NULL, '{}', 'personal', 'Mi rutina', 'Día A', 'open');
+        INSERT INTO settings (key, value) VALUES ('sessionLastUsed:2', '2001-02-03T00:00:00.000Z');
+        PRAGMA user_version = 4;
+      `);
+      await migrate(db);
+      expect((await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version).toBe(DATABASE_VERSION);
+      expect(await db.getFirstAsync<{ last_used_at: string | null }>('SELECT last_used_at FROM sessions WHERE id = 2')).toEqual({
+        last_used_at: '2001-02-03T00:00:00.000Z',
+      });
+      expect(await db.getFirstAsync<{ name: string | null }>(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'ux_sessions_one_open_per_day'"
+      )).toBeUndefined();
     } finally {
       close();
     }

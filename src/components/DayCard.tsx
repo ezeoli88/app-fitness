@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatCompletedLong } from '@/format';
@@ -31,6 +32,7 @@ export function DayCard({
   onPress,
 }: DayCardProps) {
   const { colors } = useTheme();
+  const [hovered, setHovered] = useState(false);
   const progress = totalSetsCount === 0 ? 0 : doneSets / totalSetsCount;
 
   let subtitle = `${totalExercises} ejercicios · ${totalSetsCount} series`;
@@ -43,11 +45,13 @@ export function DayCard({
   return (
     <Pressable
       onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
       style={[
         styles.card,
         {
           backgroundColor: colors.card,
-          borderColor: isLast && !isOpen ? colors.lastBorder : colors.border,
+          borderColor: hovered || (isLast && !isOpen) ? colors.lastBorder : colors.border,
         },
       ]}
       accessibilityRole="button"

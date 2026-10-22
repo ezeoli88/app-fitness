@@ -32,6 +32,14 @@ yarn-error.*
 
 # local env files
 .env*.local
+worker/.dev.vars
+worker/.wrangler
+worker/node_modules
+
+# tests
+playwright-report/
+test-results/
+blob-report/
 
 # typescript
 *.tsbuildinfo

@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const DATABASE_VERSION = 4;
+export const DATABASE_VERSION = 5;
 
 const MIGRATION_0 = `
 CREATE TABLE IF NOT EXISTS days (
@@ -81,6 +81,31 @@ CREATE TABLE session_sets (
   UNIQUE (session_exercise_id, set_index)
 );
 CREATE INDEX idx_session_sets_exercise ON session_sets (session_exercise_id, set_index);
+`;
+
+const MIGRATION_4 = `
+ALTER TABLE days ADD COLUMN uid TEXT;
+ALTER TABLE exercises ADD COLUMN uid TEXT;
+ALTER TABLE sessions ADD COLUMN uid TEXT;
+ALTER TABLE sessions ADD COLUMN last_used_at TEXT;
+ALTER TABLE session_exercises ADD COLUMN uid TEXT;
+ALTER TABLE session_sets ADD COLUMN uid TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_days_uid ON days (uid) WHERE uid IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_exercises_uid ON exercises (uid) WHERE uid IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sessions_uid ON sessions (uid) WHERE uid IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_session_exercises_uid ON session_exercises (uid) WHERE uid IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_session_sets_uid ON session_sets (uid) WHERE uid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sessions_routine_done ON sessions (routine_id, status, completed_at);
+
+UPDATE sessions
+SET last_used_at = (
+  SELECT value FROM settings WHERE key = 'sessionLastUsed:' || sessions.id
+)
+WHERE last_used_at IS NULL
+  AND EXISTS (
+    SELECT 1 FROM settings WHERE key = 'sessionLastUsed:' || sessions.id
+  );
 `;
 
 function parseLegacySets(raw: string): Record<number, boolean[]> {
@@ -204,6 +229,21 @@ export async function migrate(db: SQLiteDatabase): Promise<void> {
       await db.execAsync(MIGRATION_3);
       await backfillSessionSnapshots(db);
       current = 4;
+    }
+    if (current === 4) {
+      await db.execAsync(MIGRATION_4);
+      const dupes = await db.getFirstAsync<{ count: number }>(`
+        SELECT COUNT(*) AS count FROM (
+          SELECT day_id FROM sessions WHERE status = 'open' GROUP BY day_id HAVING COUNT(*) > 1
+        )
+      `);
+      if (!dupes || Number(dupes.count) === 0) {
+        await db.execAsync(
+          `CREATE UNIQUE INDEX IF NOT EXISTS ux_sessions_one_open_per_day
+           ON sessions (day_id) WHERE status = 'open'`
+        );
+      }
+      current = 5;
     }
     await db.execAsync(`PRAGMA user_version = ${current}`);
   });

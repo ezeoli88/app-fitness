@@ -1,7 +1,7 @@
-import { useSQLiteContext } from 'expo-sqlite';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext } from 'react';
 
-import { getSetting, setSetting } from '@/db/settings';
+import { useData } from '@/data/DataProvider';
 import { nextTheme, palettes, parseThemeName, type Colors, type ThemeName } from '@/theme';
 
 type ThemeContextValue = {
@@ -13,29 +13,25 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const db = useSQLiteContext();
+  const { settings } = useData();
   const [theme, setTheme] = useState<ThemeName>('dark');
 
   useEffect(() => {
-    void getSetting(db, 'theme').then((value) => {
+    void settings.get('theme').then((value) => {
       setTheme(parseThemeName(value));
     }).catch(() => setTheme('dark'));
-  }, [db]);
+  }, [settings]);
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => {
       const next = nextTheme(current);
-      void setSetting(db, 'theme', next);
+      void settings.set('theme', next);
       return next;
     });
-  }, [db]);
+  }, [settings]);
 
   const value = useMemo(
-    () => ({
-      theme,
-      colors: palettes[theme],
-      toggleTheme,
-    }),
+    () => ({ theme, colors: palettes[theme], toggleTheme }),
     [theme, toggleTheme]
   );
 
@@ -44,8 +40,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 export function useTheme(): ThemeContextValue {
   const value = useContext(ThemeContext);
-  if (!value) {
-    throw new Error('useTheme must be used within ThemeProvider');
-  }
+  if (!value) throw new Error('useTheme must be used within ThemeProvider');
   return value;
 }
