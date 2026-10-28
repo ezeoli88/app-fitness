@@ -162,6 +162,7 @@ p, h1, h2 { margin: 0; }
 .session-kicker { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
 .session-hero { font-size: 24px; font-weight: 600; letter-spacing: -0.6px; margin: 4px 0 20px; }
 .exercise-name { font-size: 16px; font-weight: 600; }
+.exercise-info { flex: 1; min-width: 0; }
 .meta { font-size: 12px; color: var(--muted); margin-top: 5px; }
 .copy { color: var(--brass); font-size: 12px; font-weight: 600; }
 .copy:disabled { opacity: 0.5; }

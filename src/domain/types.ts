@@ -37,6 +37,8 @@ export type SessionExercise = {
   sets: number;
   reps: number;
   sort: number;
+  /** Marcado como opcional en esta sesión: sus series no cuentan para completarla. */
+  optional: boolean;
 };
 
 export type SessionSet = {

@@ -180,6 +180,8 @@ export type GymDb = {
   ): Promise<void>;
   /** Escribe varias series de una sesión abierta en un único batch. Si una serie es inválida no se escribe nada. */
   updateSessionSets(sessionId: number, sets: SessionSetWrite[]): Promise<void>;
+  /** Marca o desmarca un ejercicio de una sesión abierta como opcional. */
+  setSessionExerciseOptional(sessionId: number, exerciseId: number, optional: boolean): Promise<void>;
   /** Escribe `sets` y cierra la sesión en un único batch. Si una serie es inválida no se escribe nada. */
   finishSession(sessionId: number, completedAtIso: string, sets?: SessionSetWrite[]): Promise<SessionStatus>;
   reopenSession(sessionId: number): Promise<void>;
@@ -242,12 +244,12 @@ export function createGymDb(driver: SqlDriver): GymDb {
       sessionId
     );
     if (!row) return null;
-    const exercises = await driver.all<SessionExercise>(
+    const exercises = (await driver.all<Omit<SessionExercise, 'optional'> & { optional: number }>(
       `SELECT id, session_id AS sessionId, source_exercise_id AS sourceExerciseId,
-              name, sets, reps, sort
+              name, sets, reps, sort, optional
        FROM session_exercises WHERE session_id = ? ORDER BY sort ASC, id ASC`,
       sessionId
-    );
+    )).map((exercise) => ({ ...exercise, optional: Boolean(exercise.optional) }));
     const series = exercises.length === 0
       ? []
       : await driver.all<{
@@ -840,6 +842,27 @@ export function createGymDb(driver: SqlDriver): GymDb {
       });
     },
 
+    async setSessionExerciseOptional(sessionId, exerciseId, optional) {
+      await driver.exclusive(async () => {
+        const results = await driver.batch([
+          {
+            sql: `UPDATE session_exercises SET optional = ?
+                  WHERE session_id = ? AND source_exercise_id = ?
+                    AND EXISTS (SELECT 1 FROM sessions WHERE id = ? AND status = 'open')`,
+            params: [optional ? 1 : 0, sessionId, exerciseId, sessionId],
+          },
+          {
+            sql: "UPDATE sessions SET last_used_at = ? WHERE id = ? AND status = 'open'",
+            params: [new Date().toISOString(), sessionId],
+          },
+        ]);
+        if (results[0].changes > 0) return;
+        const session = await driver.first<{ status: string }>('SELECT status FROM sessions WHERE id = ?', sessionId);
+        if (session && session.status !== 'open') throw new DomainError('La sesión ya está cerrada.');
+        throw new DomainError('Ese ejercicio ya no está disponible.');
+      });
+    },
+
     async finishSession(sessionId, completedAtIso, sets = []) {
       assertSetWrites(sets);
       return driver.exclusive(async () => {
@@ -854,16 +877,17 @@ export function createGymDb(driver: SqlDriver): GymDb {
           FROM session_exercises se JOIN session_sets ss ON ss.session_exercise_id = se.id
           WHERE se.session_id = sessions.id
         )`;
-        const totalSets = `(
-          SELECT COUNT(*)
+        // Completa si no queda ninguna serie pendiente en los ejercicios obligatorios; los opcionales no cuentan.
+        const pendingRequired = `EXISTS (
+          SELECT 1
           FROM session_exercises se JOIN session_sets ss ON ss.session_exercise_id = se.id
-          WHERE se.session_id = sessions.id
+          WHERE se.session_id = sessions.id AND se.optional = 0 AND ss.completed = 0
         )`;
         // El estado se calcula después de las series del mismo batch.
         stmts.push(
           {
             sql: `UPDATE sessions
-                  SET status = CASE WHEN ${doneSets} = ${totalSets} THEN 'completed' ELSE 'partial' END,
+                  SET status = CASE WHEN ${pendingRequired} THEN 'partial' ELSE 'completed' END,
                       completed_at = ?
                   WHERE id = ? AND status = 'open' AND ${doneSets} > 0`,
             params: [completedAtIso, sessionId],

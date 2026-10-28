@@ -245,6 +245,47 @@ export function registerRepositoryContract(
     same(await gym.exerciseWeightHints([]), {});
   }));
 
+  test('finishes as completed when the only missing sets belong to an optional exercise', () => withDriver(async (driver) => {
+    const gym = createGymDb(driver);
+    const draft = sampleRoutine();
+    draft.days[0].exercises.push({ id: null, name: 'Remo', sets: 2, reps: 10, sort: 1 });
+    const routineId = await gym.saveRoutine(draft);
+    const day = (await gym.listDays(routineId))[0];
+    const [squat, row] = await gym.listExercises(day.id);
+    const done = { completed: true, weightKg: 50, actualReps: 8 };
+
+    const first = await gym.getOrCreateOpenSession(day.id);
+    same(first.exercises.map((exercise) => exercise.optional), [false, false]);
+    await gym.updateSessionSet(first.id, squat.id, 0, done);
+    await gym.updateSessionSet(first.id, squat.id, 1, done);
+    await gym.setSessionExerciseOptional(first.id, row.id, true);
+    same((await gym.getSessionDetails(first.id))?.exercises.map((exercise) => exercise.optional), [false, true]);
+    same(await gym.finishSession(first.id, '2026-10-01T10:00:00.000Z'), 'completed');
+    await rejects(() => gym.setSessionExerciseOptional(first.id, row.id, false), 'cerrada');
+    await gym.reopenSession(first.id);
+    same((await gym.getSessionDetails(first.id))?.exercises[1].optional, true, 'reabrir conserva el opcional');
+    await gym.setSessionExerciseOptional(first.id, row.id, false);
+    same(await gym.finishSession(first.id, '2026-10-01T10:00:00.000Z'), 'partial');
+
+    // Un ejercicio obligatorio incompleto sigue dejando la sesión parcial, aunque otro sea opcional.
+    const second = await gym.getOrCreateOpenSession(day.id);
+    same(second.exercises.map((exercise) => exercise.optional), [false, false], 'cada sesión empieza sin opcionales');
+    await gym.updateSessionSet(second.id, squat.id, 0, done);
+    await gym.setSessionExerciseOptional(second.id, row.id, true);
+    same(await gym.finishSession(second.id, '2026-10-08T10:00:00.000Z'), 'partial');
+
+    // Las series hechas de un opcional se guardan y la sesión queda completa.
+    const third = await gym.getOrCreateOpenSession(day.id);
+    await gym.updateSessionSets(third.id, [0, 1].map((setIndex) => ({ exerciseId: squat.id, setIndex, patch: done })));
+    await gym.updateSessionSet(third.id, row.id, 0, done);
+    await gym.setSessionExerciseOptional(third.id, row.id, true);
+    same(await gym.finishSession(third.id, '2026-10-15T10:00:00.000Z'), 'completed');
+    same((await gym.getSessionDetails(third.id))?.exercises[1].series.map((set) => set.completed), [true, false]);
+
+    const fourth = await gym.getOrCreateOpenSession(day.id);
+    await rejects(() => gym.setSessionExerciseOptional(fourth.id, 999999, true), 'no está disponible');
+  }));
+
   test('builds the home snapshot in one read and reports set state', () => withDriver(async (driver) => {
     const gym = createGymDb(driver);
     const routineId = await gym.saveRoutine(sampleRoutine());

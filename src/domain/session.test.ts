@@ -14,6 +14,7 @@ import {
   hasEnteredValues,
   markSessionSets,
   markSetWrites,
+  sessionSetProgress,
   setsWithEnteredValues,
 } from './session';
 import type { SessionDetails } from './types';
@@ -102,7 +103,7 @@ function sevenByFour(): SessionDetails {
     status: 'open', routineId: 'r', routineTitle: 'R', dayTitle: 'D',
     exercises: Array.from({ length: 7 }, (_, exerciseIndex) => ({
       id: 100 + exerciseIndex, sessionId: 1, sourceExerciseId: 10 + exerciseIndex,
-      name: `E${exerciseIndex}`, sets: 4, reps: 8, sort: exerciseIndex,
+      name: `E${exerciseIndex}`, sets: 4, reps: 8, sort: exerciseIndex, optional: false,
       series: Array.from({ length: 4 }, (_, setIndex) => ({
         id: exerciseIndex * 4 + setIndex + 1, sessionExerciseId: 100 + exerciseIndex, setIndex,
         completed: setIndex < 2, weightKg: 40, actualReps: null,
@@ -216,4 +217,19 @@ test('markSessionSets updates the series and the per-exercise marks', () => {
   expect(marked.completedSets[10]).toEqual([false, false, true, false]);
   expect(marked.exercises[0].series.map((set) => set.completed)).toEqual([false, false, true, false]);
   expect(countCompletedSets(marked.completedSets)).toBe(1);
+});
+
+test('sessionSetProgress leaves the missing sets of an optional exercise out of the target', () => {
+  const session = sevenByFour();
+  // Dos series realizadas de cuatro en cada uno de los siete ejercicios.
+  expect(sessionSetProgress(session.exercises)).toEqual({ done: 14, total: 28 });
+  const exercises = session.exercises.map((exercise, index) => ({
+    ...exercise,
+    optional: index === 6,
+    series: index === 6 ? exercise.series : exercise.series.map((set) => ({ ...set, completed: true })),
+  }));
+  expect(sessionSetProgress(exercises)).toEqual({ done: 26, total: 26 });
+  exercises[0] = { ...exercises[0], series: exercises[0].series.map((set) => ({ ...set, completed: false })) };
+  expect(sessionSetProgress(exercises)).toEqual({ done: 22, total: 26 });
+  expect(sessionSetProgress([])).toEqual({ done: 0, total: 0 });
 });

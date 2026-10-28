@@ -89,7 +89,25 @@ export function markSessionSets(session: SessionDetails, marks: SetKey[]): Sessi
   return { ...session, completedSets, exercises };
 }
 
-export type EmptyFinishChoice = { kind: 'finish' } | { kind: 'mark'; sets: SetKey[] } | { kind: 'discard' };
+/**
+ * Series realizadas y series que hacen falta para completar la sesión. Un ejercicio opcional solo suma
+ * las series que se hicieron, así que no deja la sesión parcial: `done === total` es una sesión completa.
+ * `finishSession` (src/db/gymDb.ts) aplica la misma regla en SQL; si cambia una, cambiar la otra.
+ */
+export function sessionSetProgress(
+  exercises: { optional: boolean; series: { completed: boolean }[] }[]
+): { done: number; total: number } {
+  let done = 0;
+  let total = 0;
+  for (const exercise of exercises) {
+    const completed = exercise.series.filter((set) => set.completed).length;
+    done += completed;
+    total += exercise.optional ? completed : exercise.series.length;
+  }
+  return { done, total };
+}
+
+export type EmptyFinishChoice ={ kind: 'finish' } | { kind: 'mark'; sets: SetKey[] } | { kind: 'discard' };
 
 /**
  * Qué ofrecer al finalizar: cerrar si hay series realizadas; si no, marcar las que tienen datos y cerrar;

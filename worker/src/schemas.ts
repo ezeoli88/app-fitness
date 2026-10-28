@@ -46,6 +46,11 @@ export const bulkSetsBody = z.object({
   sets: setWrites.min(1),
 }).strict();
 
+export const exerciseOptionalBody = z.object({
+  exerciseId: z.number().int().positive(),
+  optional: z.boolean(),
+}).strict();
+
 const MAX_HINT_IDS = 100;
 
 /** Lee `ids=1,2,3`; devuelve null si alguno no es un entero positivo. */

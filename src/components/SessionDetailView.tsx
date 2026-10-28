@@ -123,7 +123,7 @@ export function SessionDetailView({ sessionId, embedded = false }: { sessionId: 
             <section key={exercise.id} className="session-block">
               <div className="exercise-head">
                 <h2 className="exercise-name">{exercise.name}</h2>
-                <span className="meta">{exercise.sets} × {exercise.reps}</span>
+                <span className="meta">{exercise.sets} × {exercise.reps}{exercise.optional ? ' · Opcional' : ''}</span>
               </div>
               {exercise.series.map((series) => {
                 const draft = drafts[String(series.id)] ?? {

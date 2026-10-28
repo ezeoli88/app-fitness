@@ -108,7 +108,7 @@ type OpenedSession = {
   id: number;
   status: string;
   completedAt: string | null;
-  exercises: { sourceExerciseId: number; series: { setIndex: number; completed: boolean; weightKg: number | null; actualReps: number | null }[] }[];
+  exercises: { sourceExerciseId: number; optional: boolean; series: { setIndex: number; completed: boolean; weightKg: number | null; actualReps: number | null }[] }[];
 };
 
 /** Rutina de 7 ejercicios × 4 series con su sesión abierta. */
@@ -418,6 +418,47 @@ describe('sesión sin marcas con datos cargados', () => {
     expect(saved.status).toBe('partial');
     expect(saved.exercises.flatMap((exercise) => exercise.series.filter((set) => set.completed).map((set) => [exercise.sourceExerciseId, set.setIndex])))
       .toEqual([[first, 0], [second, 3]]);
+  });
+});
+
+function setOptional(sessionId: number | string, body: unknown): Promise<Response> {
+  return api(`/api/sessions/${sessionId}/exercises`, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+describe('ejercicio opcional', () => {
+  it('cierra como completa si solo faltan series de ejercicios opcionales', async () => {
+    const session = await openSevenByFour();
+    const optional = session.exercises.slice(5).map((exercise) => exercise.sourceExerciseId);
+    for (const exerciseId of optional) {
+      const response = await setOptional(session.id, { exerciseId, optional: true });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: true });
+    }
+    const saved = await details(session.id);
+    expect(saved.exercises.map((exercise) => exercise.optional)).toEqual([false, false, false, false, false, true, true]);
+    const sets = allSets(session, (exerciseIndex) => exerciseIndex < 5);
+    const response = await finish(session.id, { completedAt: '2026-10-22T10:00:00.000Z', sets });
+    expect(await response.json()).toEqual({ status: 'completed' });
+    expect((await setOptional(session.id, { exerciseId: optional[0], optional: false })).status).toBe(409);
+  });
+
+  it('valida el pedido y rechaza un ejercicio que no es de la sesión', async () => {
+    const session = await openSevenByFour();
+    const exerciseId = session.exercises[0].sourceExerciseId;
+    const bad: unknown[] = [
+      null,
+      {},
+      { exerciseId },
+      { exerciseId, optional: 'sí' },
+      { exerciseId: 0, optional: true },
+      { exerciseId, optional: true, extra: 1 },
+    ];
+    for (const body of bad) {
+      expect((await setOptional(session.id, body)).status, JSON.stringify(body)).toBe(422);
+    }
+    expect((await setOptional('abc', { exerciseId, optional: true })).status).toBe(422);
+    expect((await setOptional(session.id, { exerciseId: 999999, optional: true })).status).toBe(409);
+    expect((await setOptional(999999, { exerciseId, optional: true })).status).toBe(409);
   });
 });
 

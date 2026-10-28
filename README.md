@@ -6,6 +6,7 @@ Aplicación web personal de entrenamiento. Los datos viven en Cloudflare D1, det
 
 - Peso y repeticiones opcionales por serie. Admite coma o punto decimal, cero kg y campos vacíos. Copia los valores anteriores sin marcar las series.
 - Finalización manual completa o parcial, descarte de sesiones vacías y cinco segundos para deshacer. Salir conserva el entrenamiento pendiente.
+- Ejercicios opcionales por sesión: las series que faltan de un ejercicio marcado como opcional no dejan la sesión parcial.
 - Rutinas editables, duplicación con historial independiente, archivo y orden de días y ejercicios. Quitar un ejercicio y agregar otro crea una identidad nueva.
 - Las sesiones conservan sus nombres y objetivos originales aunque se edite la rutina.
 - Próximo día sugerido, prioridad para la última sesión abierta utilizada, historial por páginas de 20, filtros y corrección de valores.

@@ -13,6 +13,7 @@ import {
   finishSetWrites,
   markSessionSets,
   markSetWrites,
+  sessionSetProgress,
   setsWithEnteredValues,
   type SetKey,
 } from '@/domain/session';
@@ -37,10 +38,6 @@ function queueOperation<T>(queue: { current: Promise<unknown> }, action: () => P
   const next = queue.current.catch(() => undefined).then(action);
   queue.current = next.catch(() => undefined);
   return next;
-}
-
-function sumTargetSets(session: SessionDetails): number {
-  return session.exercises.reduce((total, exercise) => total + exercise.series.length, 0);
 }
 
 export const Route = createFileRoute('/session/$dayId')({
@@ -291,6 +288,37 @@ function SessionPage() {
     });
   };
 
+  // Un ejercicio opcional sigue registrando series, pero las que faltan no dejan la sesión parcial.
+  const toggleOptional = (exerciseId: number) => {
+    const current = sessionRef.current;
+    if (!current || current.status !== 'open' || toast || finishingRef.current) return;
+    const exercise = current.exercises.find((item) => item.sourceExerciseId === exerciseId);
+    if (!exercise) return;
+    const optional = !exercise.optional;
+    const next: SessionDetails = {
+      ...current,
+      exercises: current.exercises.map((item) => item.sourceExerciseId === exerciseId ? { ...item, optional } : item),
+    };
+    sessionRef.current = next;
+    setSession(next);
+    setError(null);
+    void queueOperation(pendingWrites.current, () =>
+      gym.setSessionExerciseOptional(current.id, exerciseId, optional)
+    ).catch(async (reason) => {
+      setError(reason instanceof Error ? reason.message : 'No se pudo guardar el ejercicio opcional.');
+      try {
+        await pendingWrites.current.current;
+        const saved = await gym.getSessionDetails(current.id);
+        if (saved) {
+          sessionRef.current = saved;
+          setSession(saved);
+        }
+      } catch {
+        // La próxima apertura vuelve a leer el estado guardado.
+      }
+    });
+  };
+
   // Un solo PATCH guarda peso y repeticiones de todas las series copiadas; no las marca como realizadas.
   const copyPrevious = async (exerciseId: number) => {
     const current = sessionRef.current;
@@ -427,12 +455,12 @@ function SessionPage() {
       });
       return;
     }
-    const total = sumTargetSets(current);
+    const progress = sessionSetProgress(current.exercises);
     const confirmFinish = () => { void saveAndFinish(); };
-    if (completed < total) {
+    if (progress.done < progress.total) {
       confirm({
         title: 'Finalizar entrenamiento',
-        message: `Registraste ${completed} de ${total} series. Podés terminar esta sesión ahora.`,
+        message: `Registraste ${progress.done} de ${progress.total} series. Podés terminar esta sesión ahora.`,
         actions: [
           { text: 'Seguir entrenando', style: 'cancel' },
           { text: 'Finalizar sesión', onPress: confirmFinish },
@@ -465,7 +493,7 @@ function SessionPage() {
   const completedSets = session ? countCompletedSets(session.completedSets) : 0;
   // Descartar solo se ofrece si la sesión está realmente vacía: sin marcas ni datos cargados.
   const canDiscard = session ? emptyFinishChoice(completedSets, enteredSets(session, drafts)).kind === 'discard' : false;
-  const totalSetCount = session ? sumTargetSets(session) : 0;
+  const progress = session ? sessionSetProgress(session.exercises) : { done: 0, total: 0 };
   const minutes = Math.floor(rest.remainingSeconds / 60);
   const seconds = rest.remainingSeconds % 60;
   const loadError = !valid
@@ -489,7 +517,7 @@ function SessionPage() {
       <div className="session-main">
         <div className="session-header">
           <button type="button" className="back" onClick={goBack}>← Inicio</button>
-          <p className="counter">{completedSets} / {totalSetCount} series</p>
+          <p className="counter">{progress.done} / {progress.total} series</p>
         </div>
         <p className="session-kicker">{session?.routineTitle ?? 'ENTRENAMIENTO'}</p>
         <h1 className="session-hero">{session?.dayTitle ?? ''}</h1>
@@ -500,7 +528,7 @@ function SessionPage() {
           return (
             <section key={exercise.id} className="session-block">
               <div className="exercise-head">
-                <div>
+                <div className="exercise-info">
                   <h2 className="exercise-name">{exercise.name}</h2>
                   <p className="meta">
                     Objetivo: {exercise.sets} × {exercise.reps}
@@ -508,6 +536,7 @@ function SessionPage() {
                       ? ` · ${formatOptionalWeight(hints.data[exercise.sourceExerciseId].targetWeightKg)} kg`
                       : ''}
                   </p>
+                  {exercise.optional ? <p className="meta">Opcional: si no lo hacés, la sesión queda completa igual.</p> : null}
                 </div>
                 {prior.length > 0 && session.status === 'open' ? (
                   <button
@@ -518,6 +547,18 @@ function SessionPage() {
                     aria-busy={copying === exercise.sourceExerciseId}
                   >
                     {copying === exercise.sourceExerciseId ? 'Copiando…' : 'Copiar anterior'}
+                  </button>
+                ) : null}
+                {session.status === 'open' ? (
+                  <button
+                    type="button"
+                    className={exercise.optional ? 'chip on' : 'chip'}
+                    aria-pressed={exercise.optional}
+                    aria-label={`${exercise.name} es opcional`}
+                    onClick={() => toggleOptional(exercise.sourceExerciseId)}
+                    disabled={finishing}
+                  >
+                    Opcional
                   </button>
                 ) : null}
               </div>

@@ -11,7 +11,7 @@ import type { RoutineJson } from '@/domain/types';
 
 import { allowedDevOrigin, authenticate, devBypassEnabled, devCorsHeaders, type AccessEnv, type Identity } from './access';
 import { createD1Driver } from './d1Driver';
-import { bulkSetsBody, finishBody,parseExerciseIds, routineDraft, setPatch } from './schemas';
+import { bulkSetsBody, exerciseOptionalBody, finishBody, parseExerciseIds, routineDraft, setPatch } from './schemas';
 
 const catalog = catalogJson as RoutineJson[];
 
@@ -143,6 +143,13 @@ export function createApp() {
     const body = bulkSetsBody.safeParse(await readJson(c.req.raw));
     if (!id || !body.success) throw invalid();
     await c.get('gym').updateSessionSets(id, body.data.sets);
+    return c.json({ ok: true });
+  });
+  app.patch('/api/sessions/:id/exercises', async (c) => {
+    const id = positiveInt(c.req.param('id'));
+    const body = exerciseOptionalBody.safeParse(await readJson(c.req.raw));
+    if (!id || !body.success) throw invalid();
+    await c.get('gym').setSessionExerciseOptional(id, body.data.exerciseId, body.data.optional);
     return c.json({ ok: true });
   });
   app.post('/api/sessions/:id/finish', async (c) => {
