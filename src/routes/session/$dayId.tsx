@@ -16,6 +16,7 @@ import {
   setsWithEnteredValues,
   type SetKey,
 } from '@/domain/session';
+import { applySetAutofill, type SetAutofill } from '@/domain/setAutocomplete';
 import { formatOptionalReps, formatOptionalWeight, parseRepsInput, parseWeightInput } from '@/domain/series';
 import type { SessionDetails, SessionSet, SessionSetWrite } from '@/domain/types';
 import { refreshTraining } from '@/query';
@@ -69,6 +70,8 @@ function SessionPage() {
   const draftsRef = useRef<Record<FieldKey, FieldDraft>>({} as Record<FieldKey, FieldDraft>);
   // Campos que el usuario escribió o copió en esta pantalla; el peso precargado no entra.
   const touchedRef = useRef(new Set<`${FieldKey}:${keyof FieldDraft}`>());
+  // Series que el ingreso en curso acaba de completar. Se suelta al confirmar el campo.
+  const autofillRef = useRef<SetAutofill | null>(null);
   const [toast, setToast] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
@@ -102,6 +105,7 @@ function SessionPage() {
     draftsRef.current = initial;
     setDrafts(initial);
     touchedRef.current = new Set();
+    autofillRef.current = null;
     setError(null);
   }, [opened.data]);
 
@@ -143,26 +147,71 @@ function SessionPage() {
   }, [hints.data, session?.id]);
 
   const updateText = (exerciseId: number, setIndex: number, field: 'weight' | 'reps', text: string) => {
+    const current = sessionRef.current;
+    if (!current || current.status !== 'open') return;
+    const exercise = current.exercises.find((item) => item.sourceExerciseId === exerciseId);
+    if (!exercise) return;
     const rowKey = key(exerciseId, setIndex);
-    if (!session) return;
-    const next = { ...(draftsRef.current[rowKey] ?? { weight: '', reps: '' }), [field]: text };
-    touchedRef.current.add(`${rowKey}:${field}`);
-    draftsRef.current = { ...draftsRef.current, [rowKey]: next };
-    setDrafts(draftsRef.current);
+    const touch = (index: number) => touchedRef.current.add(`${key(exerciseId, index)}:${field}`);
+
+    let parsed: number | null;
     try {
-      const parsed = field === 'weight' ? parseWeightInput(text) : parseRepsInput(text);
-      queueOperation(pendingWrites.current, () =>
-        gym.updateSessionSet(session.id, exerciseId, setIndex, field === 'weight' ? { weightKg: parsed } : { actualReps: parsed })
-      ).catch((reason) => setError(reason instanceof Error ? reason.message : 'No se pudo guardar la serie.'));
+      parsed = field === 'weight' ? parseWeightInput(text) : parseRepsInput(text);
     } catch {
       // Un valor parcial como "12," queda en el campo hasta salir o finalizar.
+      const next = { ...(draftsRef.current[rowKey] ?? { weight: '', reps: '' }), [field]: text };
+      touch(setIndex);
+      draftsRef.current = { ...draftsRef.current, [rowKey]: next };
+      setDrafts(draftsRef.current);
+      return;
     }
+
+    const applied = applySetAutofill({
+      exerciseId,
+      sets: exercise.series.map((series) => {
+        const draft = draftsRef.current[key(exerciseId, series.setIndex)] ?? {
+          weight: formatOptionalWeight(series.weightKg),
+          reps: formatOptionalReps(series.actualReps),
+        };
+        return { setIndex: series.setIndex, weight: draft.weight, reps: draft.reps };
+      }),
+      setIndex,
+      field,
+      value: text,
+      previous: autofillRef.current,
+    });
+    const updated = { ...draftsRef.current };
+    for (const set of applied.sets) {
+      updated[key(exerciseId, set.setIndex)] = { weight: set.weight, reps: set.reps };
+    }
+    if (!applied.sets.some((set) => set.setIndex === setIndex)) {
+      updated[rowKey] = { ...(draftsRef.current[rowKey] ?? { weight: '', reps: '' }), [field]: text };
+    }
+    touch(setIndex);
+    if (text.trim() !== '') {
+      for (const index of applied.targets) touch(index);
+    }
+    draftsRef.current = updated;
+    setDrafts(updated);
+    autofillRef.current = applied.next;
+
+    const patch = field === 'weight' ? { weightKg: parsed } : { actualReps: parsed };
+    const writes: SessionSetWrite[] = [setIndex, ...applied.targets].map((index) => ({ exerciseId, setIndex: index, patch }));
+    const save = writes.length === 1
+      ? () => gym.updateSessionSet(current.id, exerciseId, setIndex, patch)
+      : () => gym.updateSessionSets(current.id, writes);
+    queueOperation(pendingWrites.current, save)
+      .catch((reason) => setError(reason instanceof Error ? reason.message : 'No se pudo guardar la serie.'));
   };
 
   const commitField = async (exerciseId: number, setIndex: number, field: 'weight' | 'reps') => {
     try {
       const draft = draftsRef.current[key(exerciseId, setIndex)] ?? { weight: '', reps: '' };
       const value = field === 'weight' ? parseWeightInput(draft.weight) : parseRepsInput(draft.reps);
+      const link = autofillRef.current;
+      if (link && link.exerciseId === exerciseId && link.setIndex === setIndex && link.field === field) {
+        autofillRef.current = null;
+      }
       if (!session) return;
       await queueOperation(pendingWrites.current, () =>
         gym.updateSessionSet(session.id, exerciseId, setIndex, field === 'weight' ? { weightKg: value } : { actualReps: value })
@@ -250,6 +299,7 @@ function SessionPage() {
     if (!exercise) return;
     const writes = copyPreviousWrites(exercise, previous[exerciseId] ?? []);
     if (writes.length === 0) return;
+    autofillRef.current = null;
     const updated = { ...draftsRef.current };
     for (const { setIndex, patch } of writes) {
       touchedRef.current.add(`${key(exerciseId, setIndex)}:weight`).add(`${key(exerciseId, setIndex)}:reps`);
