@@ -22,6 +22,12 @@ function blank(value: string | null | undefined): boolean {
   return value == null || value.trim() === '';
 }
 
+/** El usuario sigue armando el mismo número ("6" → "60", "12" → "12,5", borrar un dígito). */
+function sameTyping(previous: string, next: string): boolean {
+  if (previous === '' || next === '') return false;
+  return next.startsWith(previous) || previous.startsWith(next);
+}
+
 function sameEntry(
   previous: SetAutofill | null,
   exerciseId: number,
@@ -36,9 +42,10 @@ function sameEntry(
 
 /**
  * Completa el mismo campo en las series siguientes del ejercicio que estén vacías.
- * Un 0 ya escrito no está vacío y no se pisa. Mientras el usuario sigue en el mismo
- * campo, las series que este ingreso acaba de llenar se actualizan (un "6" pasa a "60");
- * si las corrige a mano dejan de coincidir y se conservan. No mira otra sesión ni el otro campo.
+ * Un 0 ya escrito no está vacío y no se pisa. Mientras el usuario sigue armando el
+ * mismo número, las series que este ingreso acaba de llenar se actualizan (un "6" pasa
+ * a "60"). Reemplazar el número por otro ("40" por "0") no las toca, y una corrección
+ * manual deja de coincidir y se conserva. No mira otra sesión ni el otro campo.
  */
 export function applySetAutofill(args: {
   exerciseId: number;
@@ -64,7 +71,10 @@ export function applySetAutofill(args: {
   for (const set of following) {
     if (targets.includes(set.setIndex)) continue;
     const current = set[field];
-    const linked = link !== null && link.indexes.has(set.setIndex) && current === link.value;
+    const linked = link !== null
+      && link.indexes.has(set.setIndex)
+      && current === link.value
+      && (value === '' || sameTyping(link.value, value));
     if (linked || (value !== '' && blank(current))) targets.push(set.setIndex);
   }
 

@@ -62,6 +62,58 @@ test('updates sets filled while typing and keeps a manual correction', () => {
   expect(second.sets.map((set) => set.weight)).toEqual(['60', '60', '55', '60']);
 });
 
+test('replacing the number does not rewrite sets this entry already filled', () => {
+  const typed = applySetAutofill({
+    exerciseId,
+    sets: sets([['', ''], ['', ''], ['', ''], ['', '']]),
+    setIndex: 0,
+    field: 'weight',
+    value: '4',
+    previous: null,
+  });
+  const forty = applySetAutofill({
+    exerciseId,
+    sets: typed.sets,
+    setIndex: 0,
+    field: 'weight',
+    value: '40',
+    previous: typed.next,
+  });
+  const replaced = applySetAutofill({
+    exerciseId,
+    sets: forty.sets,
+    setIndex: 0,
+    field: 'weight',
+    value: '0',
+    previous: forty.next,
+  });
+
+  expect(forty.sets.map((set) => set.weight)).toEqual(['40', '40', '40', '40']);
+  expect(replaced.targets).toEqual([]);
+  expect(replaced.sets.map((set) => set.weight)).toEqual(['0', '40', '40', '40']);
+});
+
+test('a decimal continuation updates the sets just filled', () => {
+  const typed = applySetAutofill({
+    exerciseId,
+    sets: sets([['', ''], ['', '']]),
+    setIndex: 0,
+    field: 'weight',
+    value: '12',
+    previous: null,
+  });
+  const decimal = applySetAutofill({
+    exerciseId,
+    sets: typed.sets,
+    setIndex: 0,
+    field: 'weight',
+    value: '12,5',
+    previous: typed.next,
+  });
+
+  expect(decimal.sets.map((set) => set.weight)).toEqual(['12,5', '12,5']);
+});
+
 test('after the entry is committed, a new value does not rewrite filled sets', () => {
   const typed = applySetAutofill({
     exerciseId,
