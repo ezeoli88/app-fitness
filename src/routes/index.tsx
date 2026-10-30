@@ -87,6 +87,7 @@ function HomePage() {
           <h1 className="hero">Entrenar</h1>
           <button type="button" className="routine-link" onClick={() => void navigate({ to: '/routines' })}>{routine?.title ?? 'Elegir rutina'}</button>
           <button type="button" className="rest-link" style={{ display: 'block' }} onClick={() => void navigate({ to: '/rest-settings' })}>Descanso y temporizador</button>
+          <button type="button" className="rest-link" style={{ display: 'block' }} onClick={() => void navigate({ to: '/diet' })}>Dieta</button>
         </div>
         <ThemeToggle />
       </div>

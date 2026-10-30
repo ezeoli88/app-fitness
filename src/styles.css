@@ -9,6 +9,9 @@
   --border: #1c2b3f;
   --last: #3d9cff;
   --danger: #c23b3b;
+  --ok: #3dff9a;
+  --mid: #ffe14d;
+  --high: #ff6b6b;
   font-family: "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
@@ -22,6 +25,9 @@
   --brass: #0077ff;
   --border: #d5e2ec;
   --last: #00c853;
+  --ok: #00a352;
+  --mid: #c98a00;
+  --high: #d63c3c;
 }
 
 * { box-sizing: border-box; }
@@ -284,3 +290,32 @@ p, h1, h2 { margin: 0; }
 .recovery h1 { font-size: 24px; }
 .recovery p { color: var(--muted); font-size: 15px; line-height: 1.5; margin-top: 12px; }
 .recovery button { margin-top: 22px; background: var(--chalk); color: var(--bg); border-radius: 15px; min-height: 48px; font-weight: 700; }
+
+/* Dieta: semáforo por plato, semana y cintura. */
+.diet-section { margin-top: 24px; display: flex; flex-direction: column; gap: 10px; }
+.diet-card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 4px 18px; }
+.diet-card.pad { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.meal-row { display: grid; grid-template-columns: 14px 1fr auto; gap: 12px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.meal-row:last-child { border-bottom: 0; }
+.meal-row > div { min-width: 0; }
+.verdict-dot { width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; background: var(--c); }
+.verdict-ok { --c: var(--ok); }
+.verdict-a_bit_much { --c: var(--mid); }
+.verdict-too_much { --c: var(--high); }
+.meal-name { font-size: 15px; }
+.meal-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.meal-note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+.meal-remove { font-size: 12px; color: var(--muted); text-decoration: underline; white-space: nowrap; }
+.week-bar { display: flex; gap: 2px; height: 12px; border-radius: 99px; overflow: hidden; background: var(--border); }
+.week-bar span { background: var(--c); }
+.week-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.week-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.week-legend .verdict-dot { margin-top: 0; width: 10px; height: 10px; }
+.waist-value { font-size: 30px; font-weight: 600; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+.waist-value small { font-size: 14px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+.diet-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.stepper { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 12px; }
+.stepper button { width: 42px; height: 42px; font-size: 20px; color: var(--brass); }
+.stepper output { min-width: 76px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.diet-save { background: var(--chalk); color: var(--bg); font-weight: 700; border-radius: 12px; padding: 11px 16px; font-size: 14px; }
+.diet-save:disabled { opacity: 0.6; }

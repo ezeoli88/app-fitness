@@ -9,7 +9,7 @@ preview_urls = false
 directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-run_worker_first = [ "/api/*" ]
+run_worker_first = [ "/api/*", "/mcp", "/authorize", "/token", "/register", "/.well-known/*" ]
 
 [placement]
 mode = "smart"
@@ -28,3 +28,7 @@ binding = "DB"
 database_name = "rutina-db"
 database_id = "d7d1a017-9a0e-4094-b446-30ec0e0e0a3a"
 migrations_dir = "migrations"
+
+# Tokens del conector MCP (OAuth). Sin id: `wrangler deploy` crea el namespace la primera vez.
+[[kv_namespaces]]
+binding = "OAUTH_KV"

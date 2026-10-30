@@ -11,6 +11,7 @@ Aplicación web personal de entrenamiento. Los datos viven en Cloudflare D1, det
 - Las sesiones conservan sus nombres y objetivos originales aunque se edite la rutina.
 - Próximo día sugerido, prioridad para la última sesión abierta utilizada, historial por páginas de 20, filtros y corrección de valores.
 - Descanso automático de 90 segundos, configurable entre 15 y 600, con extensión, omisión y aviso en el navegador. Sin permiso se conserva el contador en la pestaña.
+- Dieta: le mandás la foto del plato a Claude y el conector MCP anota si la porción está bien, con proteína y carbohidratos. La pantalla de dieta muestra el día, la semana y la cintura. Configuración en [docs/mcp-dieta.md](docs/mcp-dieta.md).
 - Temas claro y oscuro. El tema y el temporizador activo quedan en este navegador. La rutina activa y la duración del descanso quedan en D1.
 
 ## Datos
