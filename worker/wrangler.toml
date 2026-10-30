@@ -32,3 +32,4 @@ migrations_dir = "migrations"
 # Tokens del conector MCP (OAuth). Sin id: `wrangler deploy` crea el namespace la primera vez.
 [[kv_namespaces]]
 binding = "OAUTH_KV"
+id = "789c6d8dc865450a9da25908178e03ba"
