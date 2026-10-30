@@ -39,6 +39,8 @@ npx wrangler secret put ACCESS_SERVICE_CLIENT_IDS
 
 `DEV_BYPASS_ACCESS` no se define en producción. Solo existe en `worker/.dev.vars` (está en `.gitignore`) y en `wrangler.test.toml`.
 
+El conector MCP de la dieta necesita una segunda aplicación de Access con Bypass para `/mcp`, `/token`, `/register` y `/.well-known/*`. El paso a paso está en [mcp-dieta.md](mcp-dieta.md).
+
 Salir de la sesión: `https://rutina.ezeo-cloud.workers.dev/cdn-cgi/access/logout`. En localhost el enlace no se muestra porque no hay Access.
 
 ## 3. Secretos de GitHub

@@ -3,6 +3,7 @@
 declare namespace Cloudflare {
   interface Env {
     DB: D1Database;
+    OAUTH_KV: KVNamespace;
     ASSETS: Fetcher;
     ACCESS_TEAM_DOMAIN: string;
     ACCESS_AUD: string;

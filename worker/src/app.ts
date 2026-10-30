@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 
 import type { SqlDriver } from '@/db/core/driver';
+import { createDietDb, type DietDb } from '@/db/dietDb';
 import { createGymDb, type GymDb } from '@/db/gymDb';
 import { seedCatalog } from '@/db/seed';
 import { createSqlSettings, isServerSettingKey } from '@/db/settings';
@@ -20,7 +21,7 @@ export type Env = AccessEnv & {
   ASSETS: Fetcher;
 };
 
-type AppVars = { identity: Identity; gym: GymDb; driver: SqlDriver };
+type AppVars = { identity: Identity; gym: GymDb; diet: DietDb; driver: SqlDriver };
 
 function positiveInt(value: string): number | null {
   const parsed = Number(value);
@@ -61,6 +62,7 @@ export function createApp() {
     const driver = createD1Driver(c.env.DB);
     c.set('identity', identity);
     c.set('gym', createGymDb(driver));
+    c.set('diet', createDietDb(driver));
     c.set('driver', driver);
     await next();
     if (bypass && allowedDevOrigin(origin)) {
@@ -210,6 +212,28 @@ export function createApp() {
     const body = z.object({ value: z.string() }).safeParse(await readJson(c.req.raw));
     if (!isServerSettingKey(key) || !body.success) throw invalid();
     await createSqlSettings(c.get('driver')).set(key, body.data.value);
+    return c.json({ ok: true });
+  });
+
+  app.get('/api/diet/summary', async (c) => {
+    const days = Number(c.req.query('days') ?? '7');
+    if (!Number.isSafeInteger(days) || days < 1 || days > 60) throw invalid();
+    return c.json(await c.get('diet').summary(days));
+  });
+  app.delete('/api/diet/meals/:id', async (c) => {
+    const id = positiveInt(c.req.param('id'));
+    if (!id) throw invalid();
+    return c.json({ deleted: await c.get('diet').deleteMeal(id) });
+  });
+  app.post('/api/diet/waist', async (c) => {
+    const body = z.object({ cm: z.number().finite() }).strict().safeParse(await readJson(c.req.raw));
+    if (!body.success) throw invalid();
+    return c.json(await c.get('diet').logWaist(body.data.cm));
+  });
+  app.put('/api/diet/height', async (c) => {
+    const body = z.object({ cm: z.number().finite() }).strict().safeParse(await readJson(c.req.raw));
+    if (!body.success) throw invalid();
+    await c.get('diet').setHeight(body.data.cm);
     return c.json({ ok: true });
   });
 

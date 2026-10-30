@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DietRouteImport } from './routes/diet'
 import { Route as HistoryRouteImport } from './routes/history'
 import { Route as RestSettingsRouteImport } from './routes/rest-settings'
 import { Route as RoutinesRouteImport } from './routes/routines'
@@ -20,6 +21,11 @@ import { Route as SessionDayIdRouteImport } from './routes/session/$dayId'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DietRoute = DietRouteImport.update({
+  id: '/diet',
+  path: '/diet',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HistoryRoute = HistoryRouteImport.update({
@@ -55,6 +61,7 @@ const SessionDayIdRoute = SessionDayIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/diet': typeof DietRoute
   '/history': typeof HistoryRoute
   '/rest-settings': typeof RestSettingsRoute
   '/routines': typeof RoutinesRoute
@@ -64,6 +71,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/diet': typeof DietRoute
   '/history': typeof HistoryRoute
   '/rest-settings': typeof RestSettingsRoute
   '/routines': typeof RoutinesRoute
@@ -74,6 +82,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/diet': typeof DietRoute
   '/history': typeof HistoryRoute
   '/rest-settings': typeof RestSettingsRoute
   '/routines': typeof RoutinesRoute
@@ -85,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/diet'
     | '/history'
     | '/rest-settings'
     | '/routines'
@@ -94,6 +104,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/diet'
     | '/history'
     | '/rest-settings'
     | '/routines'
@@ -103,6 +114,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/diet'
     | '/history'
     | '/rest-settings'
     | '/routines'
@@ -113,6 +125,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DietRoute: typeof DietRoute
   HistoryRoute: typeof HistoryRoute
   RestSettingsRoute: typeof RestSettingsRoute
   RoutinesRoute: typeof RoutinesRoute
@@ -128,6 +141,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/diet': {
+      id: '/diet'
+      path: '/diet'
+      fullPath: '/diet'
+      preLoaderRoute: typeof DietRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/history': {
@@ -177,6 +197,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DietRoute: DietRoute,
   HistoryRoute: HistoryRoute,
   RestSettingsRoute: RestSettingsRoute,
   RoutinesRoute: RoutinesRoute,
