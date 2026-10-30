@@ -72,11 +72,12 @@ p, h1, h2 { margin: 0; }
 .home-resume { order: 1; }
 .home-archived { order: 2; }
 .home-days { order: 3; }
-.home-history { order: 4; }
+.diet-home { order: 4; }
+.home-history { order: 5; }
 @media (min-width: 1024px) {
   .home-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; align-items: start; }
   .home-side { display: flex; flex-direction: column; min-width: 0; }
-  .home-days, .home-resume, .home-archived, .home-history { order: 0; }
+  .home-days, .home-resume, .home-archived, .diet-home, .home-history { order: 0; }
 }
 
 .resume, .archived-open, .day-card, .routine-card, .toggle-card, .permission, .summary, .side-rest {
@@ -319,3 +320,7 @@ p, h1, h2 { margin: 0; }
 .stepper output { min-width: 76px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
 .diet-save { background: var(--chalk); color: var(--bg); font-weight: 700; border-radius: 12px; padding: 11px 16px; font-size: 14px; }
 .diet-save:disabled { opacity: 0.6; }
+.diet-home { border-color: var(--border); }
+.diet-dots { display: flex; gap: 6px; margin-top: 9px; min-height: 0; }
+.diet-dots:empty { display: none; }
+.diet-dots .verdict-dot { margin-top: 0; }
