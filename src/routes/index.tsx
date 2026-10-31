@@ -1,11 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 
-import { diet, gym } from '@/api/client';
+import { gym } from '@/api/client';
 import { DayCard } from '@/components/DayCard';
 import { HistoryList } from '@/components/HistoryList';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { MEAL_VERDICTS, VERDICT_LABELS } from '@/domain/diet';
 import { countCompletedExercises, countCompletedSets, totalSets } from '@/domain/session';
 import { nextTrainingDay } from '@/domain/routine';
 import { formatTodayHeader } from '@/format';
@@ -19,7 +18,6 @@ function HomePage() {
   const navigate = useNavigate();
   usePageTitle('Entrenar');
   const home = useQuery({ queryKey: ['home'], queryFn: () => gym.getHomeSnapshot() });
-  const dietSummary = useQuery({ queryKey: ['diet', 'summary'], queryFn: () => diet.summary(7) });
   const days = home.data?.days ?? [];
   const last = home.data?.lastCompleted ?? null;
   const recent = home.data?.recent ?? [];
@@ -69,27 +67,6 @@ function HomePage() {
     </button>
   ) : null;
 
-  const todayMeals = dietSummary.data ? dietSummary.data.meals.filter((meal) => meal.day === dietSummary.data.today) : [];
-  const dietLine = todayMeals.length === 0
-    ? 'Sin platos hoy. Mandale la foto a Claude.'
-    : MEAL_VERDICTS
-      .map((verdict) => ({ verdict, count: todayMeals.filter((meal) => meal.verdict === verdict).length }))
-      .filter((item) => item.count > 0)
-      .map((item) => `${item.count} ${VERDICT_LABELS[item.verdict].toLowerCase()}`)
-      .join(' · ');
-  const dietCard = (
-    <button type="button" className="resume diet-home" onClick={() => void navigate({ to: '/diet' })}>
-      <span className="resume-copy">
-        <span className="resume-kicker">DIETA · HOY</span>
-        <span className="diet-dots" aria-hidden="true">
-          {todayMeals.map((meal) => <span key={meal.id} className={`verdict-dot verdict-${meal.verdict}`} />)}
-        </span>
-        <span className="resume-sub" style={{ display: 'block' }}>{dietSummary.isError ? 'No pudimos cargar la dieta.' : dietLine}</span>
-      </span>
-      <span className="arrow">→</span>
-    </button>
-  );
-
   const historyBlock = (
     <section className="home-history">
       <div className="history-heading">
@@ -120,7 +97,6 @@ function HomePage() {
         <div className="home-side">
           {resumeCard}
           {archivedCard}
-          {dietCard}
           {historyBlock}
         </div>
       </div>
