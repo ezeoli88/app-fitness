@@ -14,6 +14,9 @@ El mismo Worker atiende `POST /mcp` (Streamable HTTP, sin sesión, respuestas JS
 | `set_height` | Guarda la altura para el ratio cintura-altura. |
 | `get_diet_summary` | Platos, conteo por semáforo, cintura y altura de los últimos días. |
 | `get_recent_workouts` | Últimos entrenamientos con series, peso y repeticiones. |
+| `save_lab_report` | Guarda un análisis de sangre con todos sus valores: clave estable (`glucose`, `hdl`, …), nombre, categoría, resultado, unidad y rango de referencia. |
+| `delete_lab_report` | Borra un estudio con sus valores. |
+| `get_lab_history` | Estudios guardados y la evolución de cada valor, con el cociente triglicéridos/HDL calculado. |
 
 Los criterios del veredicto y el objetivo están en las instrucciones del servidor (`worker/src/mcp.ts`, `DIET_GOAL` en `src/domain/diet.ts`). Claude las lee al conectarse.
 
@@ -68,5 +71,7 @@ Al tocar Conectar se abre `/authorize`: si Access pide el código, ingresalo, y 
 ## Uso
 
 En un chat con el conector activado: sacale una foto al plato y mandásela. Claude responde con el semáforo, el por qué y un consejo, y lo anota. "No lo comí" lo borra. También podés decirle "mi cintura hoy es 90" o pedirle el resumen de la semana cruzado con los entrenamientos.
+
+Para un análisis de sangre, adjuntá el PDF o una foto del estudio. Claude guarda todos los valores con la fecha de extracción y te dice cuáles quedaron fuera de rango. Se ven en la pestaña Salud de la app. El archivo no se guarda, solo los números.
 
 Para cortar el acceso: desconectá el conector en claude.ai. Para invalidar todos los tokens, vaciá el KV `OAUTH_KV`.

@@ -18,6 +18,7 @@ function sourceFiles(directory: string): string[] {
 const shared = [
   join(root, 'src/db/gymDb.ts'),
   join(root, 'src/db/dietDb.ts'),
+  join(root, 'src/db/labsDb.ts'),
   join(root, 'src/db/seed.ts'),
   join(root, 'src/db/settings.ts'),
   join(root, 'src/db/core/driver.ts'),

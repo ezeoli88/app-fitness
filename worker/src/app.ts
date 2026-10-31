@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { SqlDriver } from '@/db/core/driver';
 import { createDietDb, type DietDb } from '@/db/dietDb';
 import { createGymDb, type GymDb } from '@/db/gymDb';
+import { createLabsDb, type LabsDb } from '@/db/labsDb';
 import { seedCatalog } from '@/db/seed';
 import { createSqlSettings, isServerSettingKey } from '@/db/settings';
 import { DomainError } from '@/domain/errors';
@@ -21,7 +22,7 @@ export type Env = AccessEnv & {
   ASSETS: Fetcher;
 };
 
-type AppVars = { identity: Identity; gym: GymDb; diet: DietDb; driver: SqlDriver };
+type AppVars = { identity: Identity; gym: GymDb; diet: DietDb; labs: LabsDb; driver: SqlDriver };
 
 function positiveInt(value: string): number | null {
   const parsed = Number(value);
@@ -63,6 +64,7 @@ export function createApp() {
     c.set('identity', identity);
     c.set('gym', createGymDb(driver));
     c.set('diet', createDietDb(driver));
+    c.set('labs', createLabsDb(driver));
     c.set('driver', driver);
     await next();
     if (bypass && allowedDevOrigin(origin)) {
@@ -235,6 +237,13 @@ export function createApp() {
     if (!body.success) throw invalid();
     await c.get('diet').setHeight(body.data.cm);
     return c.json({ ok: true });
+  });
+
+  app.get('/api/labs', async (c) => c.json({ reports: await c.get('labs').listReports() }));
+  app.delete('/api/labs/:id', async (c) => {
+    const id = positiveInt(c.req.param('id'));
+    if (!id) throw invalid();
+    return c.json({ deleted: await c.get('labs').deleteReport(id) });
   });
 
   app.post('/api/bootstrap', async (c) => {

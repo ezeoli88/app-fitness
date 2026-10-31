@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { SqlDriver } from '@/db/core/driver';
 import { createDietDb } from '@/db/dietDb';
 import { createGymDb } from '@/db/gymDb';
+import { createLabsDb } from '@/db/labsDb';
 import {
   CARB_LEVELS,
   DIET_GOAL,
@@ -17,6 +18,7 @@ import {
   PROTEIN_LEVELS,
 } from '@/domain/diet';
 import { DomainError } from '@/domain/errors';
+import { COMMON_LAB_KEYS, LAB_CATEGORIES, LAB_FLAG_LABELS, labSeries, MAX_LAB_RESULTS } from '@/domain/labs';
 
 /** Lo que Claude lee al conectarse: cómo juzgar el plato y cómo contestar. */
 export const MCP_INSTRUCTIONS = `Rutina es la app personal de gimnasio y dieta de una sola persona.
@@ -30,7 +32,9 @@ Cuando te mande la foto de un plato (o te lo describa), juzgalo a ojo, sin pesar
 
 Respondé en español rioplatense y corto: el semáforo, una línea de por qué y un consejo concreto. Después llamá a log_meal sin pedir confirmación. Si no queda claro que lo vaya a comer, preguntá antes. Si dice que no lo comió, usá delete_meal con el id que devolvió log_meal.
 
-No des consejos médicos ni diagnósticos. Si trae análisis de sangre, podés comentarlos en general y sugerir que los vea con su médico.`;
+Cuando te mande un análisis de sangre (PDF o foto), leé TODOS los valores que trae, no solo los de grasa visceral, y guardalos con save_lab_report sin pedir confirmación: fecha del estudio (no la de hoy), laboratorio, y por cada valor el resultado, la unidad y el rango de referencia tal como figuran. Usá las claves sugeridas para que el mismo valor se llame igual en todos los estudios. Si no se lee la fecha, preguntala antes. Después contestá corto: cuántos valores guardaste, cuáles quedaron fuera de rango y cómo vienen glucosa, HbA1c, insulina, triglicéridos y HDL frente al estudio anterior (usá get_lab_history).
+
+No des consejos médicos ni diagnósticos. Los análisis comentalos en general y sugerí que los vea con su médico.`;
 
 type ToolResult = { content: { type: 'text'; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean };
 
@@ -55,6 +59,7 @@ async function run(task: () => Promise<ToolResult>): Promise<ToolResult> {
 export function createRutinaMcpServer(driver: SqlDriver, now: () => Date = () => new Date()): McpServer {
   const diet = createDietDb(driver);
   const gym = createGymDb(driver);
+  const labs = createLabsDb(driver);
   const server = new McpServer({ name: 'rutina', version: '1.0.0' }, { instructions: MCP_INSTRUCTIONS });
 
   server.registerTool('log_meal', {
@@ -154,6 +159,85 @@ export function createRutinaMcpServer(driver: SqlDriver, now: () => Date = () =>
       })),
     }));
     return ok(JSON.stringify(workouts), { workouts });
+  }));
+
+  const labResult = z.object({
+    key: z.string().min(1).max(60).describe(`Clave estable en snake_case. Usá estas si corresponden: ${Object.keys(COMMON_LAB_KEYS).join(', ')}. Para otros valores, una clave corta en inglés (por ejemplo platelets, potassium, free_t4).`),
+    name: z.string().min(1).max(120).describe('Nombre como figura en el estudio, en español.'),
+    category: z.enum(LAB_CATEGORIES).describe('Grupo del valor.'),
+    value: z.number().optional().describe('Resultado numérico. Si el estudio da texto (por ejemplo "negativo"), usá value_text.'),
+    value_text: z.string().max(120).optional().describe('Resultado no numérico.'),
+    unit: z.string().max(30).optional().describe('Unidad tal como figura, por ejemplo "mg/dL".'),
+    ref_low: z.number().optional().describe('Límite inferior del rango de referencia, si lo hay.'),
+    ref_high: z.number().optional().describe('Límite superior del rango de referencia, si lo hay.'),
+    ref_text: z.string().max(120).optional().describe('El rango de referencia como texto, tal como figura.'),
+  });
+
+  server.registerTool('save_lab_report', {
+    title: 'Guardar análisis de sangre',
+    description: 'Guarda un análisis de sangre completo con todos sus valores. Llamala una vez por estudio.',
+    inputSchema: {
+      day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe('Fecha de extracción del estudio, YYYY-MM-DD.'),
+      lab: z.string().max(120).optional().describe('Laboratorio, si figura.'),
+      note: z.string().max(500).optional().describe('Comentario breve, por ejemplo si fue en ayunas.'),
+      results: z.array(labResult).min(1).max(MAX_LAB_RESULTS).describe('Todos los valores del estudio.'),
+    },
+    annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, (args) => run(async () => {
+    const report = await labs.saveReport({
+      day: args.day,
+      lab: args.lab,
+      note: args.note,
+      results: args.results.map((result) => ({
+        key: result.key,
+        name: result.name,
+        category: result.category,
+        value: result.value,
+        valueText: result.value_text,
+        unit: result.unit,
+        refLow: result.ref_low,
+        refHigh: result.ref_high,
+        refText: result.ref_text,
+      })),
+    }, now());
+    const outside = report.results.filter((result) => result.flag === 'low' || result.flag === 'high');
+    const detail = outside.length
+      ? ` Fuera de rango: ${outside.map((result) => `${result.name} ${LAB_FLAG_LABELS[result.flag].toLowerCase()}`).join(', ')}.`
+      : ' Todos los valores con rango quedaron dentro.';
+    return ok(`Estudio del ${report.day} guardado (id ${report.id}) con ${report.results.length} valores.${detail}`, { report });
+  }));
+
+  server.registerTool('delete_lab_report', {
+    title: 'Borrar análisis de sangre',
+    description: 'Borra un estudio guardado con todos sus valores, por ejemplo si se cargó mal o repetido.',
+    inputSchema: { id: z.number().int().positive().describe('El id que devolvió save_lab_report.') },
+    annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  }, (args) => run(async () => {
+    const deleted = await labs.deleteReport(args.id);
+    return ok(deleted ? 'Estudio borrado.' : 'No había un estudio con ese id.', { deleted });
+  }));
+
+  server.registerTool('get_lab_history', {
+    title: 'Ver análisis de sangre',
+    description: 'Estudios guardados y la evolución de cada valor en el tiempo. Sirve para comparar con el estudio anterior.',
+    inputSchema: {
+      keys: z.array(z.string()).max(50).optional().describe('Claves a incluir. Por defecto, todas.'),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, (args) => run(async () => {
+    const reports = await labs.listReports();
+    const wanted = args.keys?.length ? new Set(args.keys) : null;
+    const series = labSeries(reports)
+      .filter((item) => !wanted || wanted.has(item.key))
+      .map((item) => ({
+        key: item.key,
+        name: item.name,
+        unit: item.unit,
+        reference: item.refText,
+        points: item.points.map((point) => ({ day: point.day, value: point.value ?? point.valueText, flag: point.flag })),
+      }));
+    const data = { reports: reports.map((report) => ({ id: report.id, day: report.day, lab: report.lab, values: report.results.length })), series };
+    return ok(JSON.stringify(data), data);
   }));
 
   return server;

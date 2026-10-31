@@ -57,7 +57,7 @@ describe('MCP de dieta', () => {
 
     const list = await handleMcpRequest(rpc('tools/list'), createD1Driver(env.DB));
     const tools = (await list.json() as { result: { tools: { name: string }[] } }).result.tools.map((tool) => tool.name);
-    expect(tools).toEqual(['log_meal', 'delete_meal', 'log_waist', 'set_height', 'get_diet_summary', 'get_recent_workouts']);
+    expect(tools).toEqual(['log_meal', 'delete_meal', 'log_waist', 'set_height', 'get_diet_summary', 'get_recent_workouts', 'save_lab_report', 'delete_lab_report', 'get_lab_history']);
   });
 
   it('anota un plato, lo resume y lo borra', async () => {
@@ -174,7 +174,7 @@ describe('OAuth del conector', () => {
     const list = await SELF.fetch(rpc('tools/list', {}, { authorization: `Bearer ${accessToken}` }));
     expect(list.status).toBe(200);
     const body = await list.json() as { result: { tools: unknown[] } };
-    expect(body.result.tools).toHaveLength(6);
+    expect(body.result.tools).toHaveLength(9);
   });
 
   it('rechaza clientes que no son Claude ni locales', async () => {

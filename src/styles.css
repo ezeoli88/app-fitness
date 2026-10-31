@@ -72,12 +72,11 @@ p, h1, h2 { margin: 0; }
 .home-resume { order: 1; }
 .home-archived { order: 2; }
 .home-days { order: 3; }
-.diet-home { order: 4; }
 .home-history { order: 5; }
 @media (min-width: 1024px) {
   .home-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; align-items: start; }
   .home-side { display: flex; flex-direction: column; min-width: 0; }
-  .home-days, .home-resume, .home-archived, .diet-home, .home-history { order: 0; }
+  .home-days, .home-resume, .home-archived, .home-history { order: 0; }
 }
 
 .resume, .archived-open, .day-card, .routine-card, .toggle-card, .permission, .summary, .side-rest {
@@ -320,7 +319,58 @@ p, h1, h2 { margin: 0; }
 .stepper output { min-width: 76px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
 .diet-save { background: var(--chalk); color: var(--bg); font-weight: 700; border-radius: 12px; padding: 11px 16px; font-size: 14px; }
 .diet-save:disabled { opacity: 0.6; }
-.diet-home { border-color: var(--border); }
-.diet-dots { display: flex; gap: 6px; margin-top: 9px; min-height: 0; }
-.diet-dots:empty { display: none; }
-.diet-dots .verdict-dot { margin-top: 0; }
+
+/* Secciones: barra de pestañas fija abajo en Ejercicio, Dieta y Salud. */
+.with-tabs { --tabs-h: 64px; padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom)); }
+.with-tabs .rest-banner { bottom: calc(var(--tabs-h) + max(10px, env(safe-area-inset-bottom))); }
+.tab-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: flex; justify-content: center; gap: 4px;
+  padding: 6px 12px max(6px, env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+}
+.tab {
+  flex: 1; max-width: 160px; min-height: 52px; border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  color: var(--muted); text-decoration: none; font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+}
+.tab.active { color: var(--brass); background: var(--card); }
+
+/* Salud: análisis de sangre. */
+.lab-date { font-size: 22px; letter-spacing: -0.5px; }
+.lab-pill {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+  padding: 3px 9px; border-radius: 99px; color: var(--c); border: 1px solid var(--c); white-space: nowrap;
+}
+.flag-normal { --c: var(--ok); }
+.flag-high, .flag-low { --c: var(--high); }
+.flag-unknown { --c: var(--muted); }
+.lab-row { padding: 14px 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.lab-row:last-child { border-bottom: 0; }
+.lab-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.lab-name { min-width: 0; }
+.lab-value { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.lab-value strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.lab-value small { font-size: 12px; color: var(--muted); }
+.lab-group summary {
+  list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; padding: 14px 0; font-size: 15px;
+}
+.lab-group summary::-webkit-details-marker { display: none; }
+.lab-group summary::after { content: '›'; color: var(--muted); font-size: 18px; transition: transform 0.15s; }
+.lab-group summary > .note { margin-left: auto; }
+.lab-group[open] summary { border-bottom: 1px solid var(--border); }
+.lab-group[open] summary::after { transform: rotate(90deg); }
+.lab-report { grid-template-columns: 1fr auto; }
+.spark { position: relative; height: 64px; margin: 4px 0 18px; }
+.spark svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.spark-band { fill: var(--ok); opacity: 0.1; }
+.spark-line { fill: none; stroke: var(--muted); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.spark-dot {
+  position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 0 2px var(--card);
+}
+.spark-dot::before { content: ''; position: absolute; inset: -10px; }
+.spark-axis { position: absolute; left: 0; right: 0; bottom: -18px; display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }

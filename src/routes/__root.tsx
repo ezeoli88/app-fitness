@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 
 import { ensureBootstrapped, gym, settings } from '@/api/client';
+import { TabBar, TAB_PATHS } from '@/components/TabBar';
 import { RestBanner } from '@/rest/RestBanner';
 import { restAlerts } from '@/rest/alerts';
 import { ConfirmHost } from '@/ui/ConfirmHost';
@@ -64,14 +65,16 @@ function Shell() {
   const wide = useWide();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const onSession = /^\/session\/[^/]+$/.test(pathname);
+  const tabs = (TAB_PATHS as readonly string[]).includes(pathname);
   return (
-    <>
+    <div className={tabs ? 'with-tabs' : undefined}>
       <HeadContent />
       <RestNavigation />
       <Outlet />
       {wide && onSession ? null : <RestBanner />}
+      {tabs ? <TabBar /> : null}
       <ConfirmHost />
       <SessionExpiredBanner />
-    </>
+    </div>
   );
 }

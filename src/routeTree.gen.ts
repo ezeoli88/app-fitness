@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DietRouteImport } from './routes/diet'
+import { Route as HealthRouteImport } from './routes/health'
 import { Route as HistoryRouteImport } from './routes/history'
 import { Route as RestSettingsRouteImport } from './routes/rest-settings'
 import { Route as RoutinesRouteImport } from './routes/routines'
@@ -26,6 +27,11 @@ const IndexRoute = IndexRouteImport.update({
 const DietRoute = DietRouteImport.update({
   id: '/diet',
   path: '/diet',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HealthRoute = HealthRouteImport.update({
+  id: '/health',
+  path: '/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HistoryRoute = HistoryRouteImport.update({
@@ -62,6 +68,7 @@ const SessionDayIdRoute = SessionDayIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/diet': typeof DietRoute
+  '/health': typeof HealthRoute
   '/history': typeof HistoryRoute
   '/rest-settings': typeof RestSettingsRoute
   '/routines': typeof RoutinesRoute
@@ -72,6 +79,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/diet': typeof DietRoute
+  '/health': typeof HealthRoute
   '/history': typeof HistoryRoute
   '/rest-settings': typeof RestSettingsRoute
   '/routines': typeof RoutinesRoute
@@ -83,6 +91,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/diet': typeof DietRoute
+  '/health': typeof HealthRoute
   '/history': typeof HistoryRoute
   '/rest-settings': typeof RestSettingsRoute
   '/routines': typeof RoutinesRoute
@@ -95,6 +104,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/diet'
+    | '/health'
     | '/history'
     | '/rest-settings'
     | '/routines'
@@ -105,6 +115,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/diet'
+    | '/health'
     | '/history'
     | '/rest-settings'
     | '/routines'
@@ -115,6 +126,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/diet'
+    | '/health'
     | '/history'
     | '/rest-settings'
     | '/routines'
@@ -126,6 +138,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DietRoute: typeof DietRoute
+  HealthRoute: typeof HealthRoute
   HistoryRoute: typeof HistoryRoute
   RestSettingsRoute: typeof RestSettingsRoute
   RoutinesRoute: typeof RoutinesRoute
@@ -148,6 +161,13 @@ declare module '@tanstack/react-router' {
       path: '/diet'
       fullPath: '/diet'
       preLoaderRoute: typeof DietRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/health': {
+      id: '/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof HealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/history': {
@@ -198,6 +218,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DietRoute: DietRoute,
+  HealthRoute: HealthRoute,
   HistoryRoute: HistoryRoute,
   RestSettingsRoute: RestSettingsRoute,
   RoutinesRoute: RoutinesRoute,
